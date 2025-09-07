@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Neco-Tubu つぶやき</title>
+  <style>
+    :root{
+      --bg:#1c1a17; --surface:#2a211b; --card:#3b3128;
+      --ink:#f5f1e6; --muted:#cbae82; --primary:#ff7f32; --accent:#a3c586; --line:#53473f;
+      --shadow:0 3px 12px rgba(0,0,0,.35); --r:14px;
+      --danger:#8d3a3a; --disabled:.45;
+    }
+    *{box-sizing:border-box}
+    html,body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Noto Sans JP","Meiryo",sans-serif;line-height:1.6}
+    a{text-decoration:none;color:inherit}
+    header{position:sticky;top:0;z-index:10;background:var(--card);border-bottom:1px solid var(--line);box-shadow:var(--shadow);padding:12px 14px}
+    header .bar{max-width:720px;margin:0 auto;display:flex;align-items:center;justify-content:space-between}
+    header h1{margin:0;font-size:18px;color:var(--primary)}
+    .btn{display:inline-block;padding:10px 14px;border-radius:12px;border:1px solid var(--line);background:var(--accent);color:#1c1a17;cursor:pointer;transition:.15s}
+    .btn.primary{background:var(--primary);color:#fff;border-color:var(--primary)}
+    .btn.disabled{opacity:var(--disabled);cursor:not-allowed;pointer-events:none;filter:grayscale(60%)}
+    main{max-width:720px;margin:0 auto;background:var(--surface);min-height:100vh;padding:16px 12px 24px}
+    .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:14px;margin:16px 0;box-shadow:var(--shadow)}
+    .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+    .right{justify-content:flex-end}
+    .hint{color:var(--muted);font-size:12px}
+    .avatar{width:80px;height:80px;border-radius:50%;overflow:hidden;border:2px solid var(--line);display:flex;align-items:center;justify-content:center;background:#6a6159;color:#fff;font-weight:800;font-size:22px}
+    .avatar img{width:100%;height:100%;object-fit:cover}
+    .profile p{margin:2px 0}
+    .tw{font-size:16px;line-height:1.8;white-space:pre-wrap}
+    /* スナップ見た目（ロジックは js/snaps.js） */
+    input[type=file]{position:absolute;left:-9999px;width:1px;height:1px;opacity:0}
+    .snap-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+    .snap{position:relative;border-radius:12px;overflow:hidden;border:1px solid var(--line);box-shadow:var(--shadow);background:#000}
+    .snap img{width:100%;height:100%;display:block;object-fit:cover}
+    .snap .del{position:absolute;top:6px;right:6px;padding:6px 8px;border:none;border-radius:10px;background:var(--danger);color:#fff;cursor:pointer}
+    @media (max-width:480px){ .snap-grid{grid-template-columns:repeat(2,1fr);} }
+
+    /* 見出し色の統一 */
+    #cat-name, .card h2 { color: var(--primary); }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="bar">
+      <h1>Neco-Tubu つぶやき</h1>
+      <a href="index_home.html" class="btn">HOME</a>
+    </div>
+  </header>
+
+  <main>
+    <!-- プロフィール -->
+    <section id="cat-profile" class="card">
+      <div class="row">
+        <div class="avatar" id="cat-avatar">？</div>
+        <div class="profile">
+          <p id="cat-name" style="font-weight:700;font-size:18px">ネコ</p>
+          <p id="cat-age" class="hint">年齢: -</p>
+          <p id="cat-breed" class="hint">猫種: -</p>
+          <p id="cat-personality" class="hint">性格: -</p>
+          <p id="cat-fav" class="hint">特徴: -</p>
+        </div>
+      </div>
+      <div class="row right" style="margin-top:10px">
+        <a href="index_cats.html" class="btn">ほかのネコ</a>
+        <a href="index_calendar.html" class="btn">カレンダー</a>
+      </div>
+    </section>
+
+    <!-- つぶやき -->
+    <section class="card">
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <div>
+          <h2 id="tw-title" style="margin:0 0 8px 0">つぶやき</h2>
+          <p id="tw-date" style="font-weight:600;margin:0 0 10px 0"></p>
+        </div>
+        <button id="btn-regen" class="btn">もう１回聴く</button>
+      </div>
+      <p id="tw-loading" class="hint">つぶやきに聞き耳を立てています‥</p>
+      <div id="tw-body" class="tw" style="display:none"></div>
+    </section>
+
+    <!-- スナップ -->
+    <section class="card">
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <h2 style="margin:0">スナップ</h2>
+        <div class="row">
+          <label for="snap-file" class="btn">写真を追加</label>
+          <input id="snap-file" type="file" accept="image/*">
+        </div>
+      </div>
+      <div id="snap-grid" class="snap-grid" style="margin-top:10px"></div>
+      <p class="hint">選ぶと自動で縮小保存（長辺1200px）。端末内のローカル保存です。</p>
+    </section>
+
+    <!-- SNS -->
+    <section class="card">
+      <h2 style="margin:0 0 8px 0">SNSシェア</h2>
+      <div class="row">
+        <button id="btn-fb" class="btn">Facebook</button>
+        <button id="btn-ig" class="btn">Instagram</button>
+        <button id="btn-tt" class="btn">TikTok</button>
+        <button id="btn-x"  class="btn">X</button>
+      </div>
+      <p class="hint">※スナップが無いときはシェアできません。Instagram/TikTokは端末により画像の直接共有ができないため、文章コピー→アプリを開くに自動切替します。</p>
+    </section>
+  </main>
+
+  <script src="js/config.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/snaps.js"></script>
+
+  <script>
+  (function(){
+    /* ================== 共有定数 ================== */
+    const CATS_KEY   = 'necotubu_cats';
+    const NS         = (window.APP_CONFIG && window.APP_CONFIG.STORAGE_NS) || 'necotubu_v1';
+    const HOME_NOTE  = NS + ':home:note';
+    const HOME_GENDER= NS + ':home:gender';
+    const HOME_WEATH = NS + ':home:weather'; // sunny/cloudy/rain/snow/storm
+    const HOME_DATE  = NS + ':home:date';    // 「2025年8月30日（土）」など
+    const TWEET_MAX  = 280;
+
+    /* ================== 小道具 ================== */
+    function qs(){ return new URLSearchParams(location.search||''); }
+    function clamp(txt,max){ const s=String(txt||''); return s.length<=max?s:s.slice(0,max-1)+'…'; }
+    function todayJST(){ const now=new Date(); return new Date(now.toLocaleString('ja-JP',{timeZone:'Asia/Tokyo'})); }
+    function yobi(n){ return '日月火水木金土'.charAt(n%7); }
+    function weatherEmoji(w){ return {sunny:'☀',cloudy:'☁',rain:'☂',snow:'❄',storm:'⚡'}[w]||''; }
+    function toDate(y,m,d){ if(!y||!m||!d) return null; const dt=new Date(+y,+m-1,+d); return isNaN(dt)?null:dt; }
+    function yearsBetween(a,b){ if(!a||!b) return null; return (b-a)/(365.25*24*3600*1000); }
+    function firstChar(s){ s=String(s||'').trim(); return s? s[0]:'？'; }
+    function colFor(str){ const AVA=['#7E5A3C','#6B7A40','#AD6A3B','#5E5347','#8C7448','#7A614C','#9A6E4D']; let h=0; str=String(str||''); for(let i=0;i<str.length;i++)h=(h*31+str.charCodeAt(i))|0; return AVA[Math.abs(h)%AVA.length]; }
+
+    /* === 文字種の計測（漢字率チェック用） === */
+    function countKanji(s){ return (String(s||'').match(/[一-龠々]/g)||[]).length; }
+    function countJP(s){ return (String(s||'').match(/[ぁ-んァ-ヶ一-龠々]/g)||[]).length; }
+    function kanjiRatio(s){ const jp=countJP(s); return jp? (countKanji(s)/jp) : 0; }
+
+    /* === 年齢→6段階ステージ ===
+       0: 〜1.00  ひらがな100%
+       1: 1.00〜1.25  漢字 実質ほぼ0%（上限2%）
+       2: 1.25〜1.50  漢字 最大14%
+       3: 1.50〜1.75  漢字 最大30%
+       4: 1.75〜2.00  漢字 最大50%
+       5: 2.00〜      制限なし
+    */
+    function stageOf(age){
+      if(age<=1.00) return 0;
+      if(age<=1.25) return 1;
+      if(age<=1.50) return 2;
+      if(age<=1.75) return 3;
+      if(age< 2.00) return 4;
+      return 5;
+    }
+    const STAGE_MAX = [0.00, 0.02, 0.14, 0.30, 0.50, 1.00]; // stage1は実質ほぼゼロ
+
+    /* === 季節・時間の表現（既存のまま） === */
+    function seasonPhrase(d){
+      const m=d.getMonth()+1,day=d.getDate();
+      if(m===10)return'かぼちゃの飾りがちらほらするころ';
+      if(m===12)return'きらきらした灯りが増える季節';
+      if(m===1&&day<=7)return'新しい年の空気がまだすこし残るころ';
+      if(m===8&&day>=10&&day<=20)return'お盆の気配が行き交うころ';
+      if(m>=3&&m<=4)return'やわらかな空気がふくらむころ';
+      if(m>=5&&m<=6)return'緑が濃くなっていく季節';
+      if(m>=7&&m<=8)return'熱気がゆらぐ午後';
+      if(m>=9&&m<=10)return'空が高くなる季節';
+      if(m>=11)return'空気がひんやりしてくる頃';
+      return'朝と夜の色が少し違って見える日';
+    }
+    function dayPhase(d){
+      const h=d.getHours();
+      if(h<6)return'まだ静かな明け方';
+      if(h<10)return'今朝の空気がすっきりした時間';
+      if(h<15)return'日差しがやさしい昼下がり';
+      if(h<18)return'そろそろ夕日がきれいなころ';
+      return'夜の気配がしみこんでくるころ';
+    }
+    function weatherPhrase(w){
+      return {sunny:'日差しがぽかぽかで',cloudy:'雲がふわっと広がっていて',rain:'雨のしずくが窓をつたって',snow:'雪が白くて綿菓子みたいで',storm:'風と空の音がごうっと鳴っていて'}[w]||'';
+    }
+
+    /* === Gemini 呼び出し（温度ゆらぎ＋毎回ユニーク） === */
+    function rand(min,max){ return min + Math.random()*(max-min); }
+    function uniqueNonce(){ return (Date.now().toString(36)+Math.random().toString(36).slice(2)); }
+    async function callGemini(prompt, signal){
+      const cfg = (window.APP_CONFIG && window.APP_CONFIG.GEMINI) || {};
+      const URL=`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(cfg.MODEL||'gemini-1.5-flash')}:generateContent?key=${encodeURIComponent(cfg.API_KEY||'')}`;
+      const baseT = (cfg.TEMPERATURE==null?1.0:Number(cfg.TEMPERATURE));
+      const body={
+        contents:[{parts:[{text:prompt}]}],
+        generationConfig:{
+          temperature: Math.max(0.1, Math.min(1.8, baseT + rand(0.18,0.45))), // 微ゆらぎ→変化強化
+          maxOutputTokens: Math.max(120, Number(cfg.MAX_TOKENS||400)),
+          topK: Math.round(rand(32,64)),             // ばらつき
+          topP: Math.max(0.75, Math.min(0.98, rand(0.82,0.97))),
+          // nonceを混ぜることでサーバ側キャッシュを避ける（意味はないがリクエスト差分になる）
+          candidateCount: 1
+        }
+      };
+      // リクエストごとにヘッダは固定のため、ボディに差分（nonce）を追加
+      body.nonce = uniqueNonce();
+
+      const res=await fetch(URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal});
+      if(!res.ok) throw new Error('Gemini API error: '+res.status);
+      const j=await res.json();
+      return (j?.candidates?.[0]?.content?.parts?.map(p=>p.text).join('')||'').trim();
+    }
+
+    /* === NG語などのサニタイズ（日時や鳴き声を消す） === */
+    function sanitize(t){
+      return String(t||'')
+        .replace(/にゃ|ニャン|ﾆｬﾝ|ﾆｬ/gi,'')
+        .replace(/\d{1,2}月\d{1,2}日/g,'きょう')
+        .replace(/\d{1,2}時\d{1,2}分/g,'いま')
+        .replace(/月曜|火曜|水曜|木曜|金曜|土曜|日曜/g,'きょう')
+        .trim();
+    }
+
+    /* === 似すぎ判定（Jaccard風：文字バイグラム） === */
+    function similarity(a,b){
+      a=String(a||''); b=String(b||'');
+      if(!a||!b) return 0;
+      const grams=(s)=>{ const g=new Set(); for(let i=0;i<s.length-1;i++) g.add(s.slice(i,i+2)); return g; };
+      const A=grams(a), B=grams(b);
+      let inter=0; A.forEach(x=>{ if(B.has(x)) inter++; });
+      return inter / Math.max(1, A.size + B.size - inter);
+    }
+
+    /* === 短い“いたわり1行”を付ける（性別に合わせる） === */
+    function ownerTitle(g){
+      if(g==='male') return 'おとうさん';
+      if(g==='female') return 'おかあさん';
+      return 'ごしゅじん';
+    }
+    function gentleLine(stage, gender){
+      const who = ownerTitle(gender);
+      if(stage<=1){
+        const pool=[`${who}、すこしやすもうね。`,`きょうはゆっくりね、${who}。`,`そばにいるよ、${who}。`];
+        return pool[Math.floor(Math.random()*pool.length)];
+      }
+      const pool2=[`${who}、むりしないでね。`,`すこし休憩しよ。`,`ぼくがそばにいるから大丈夫。`];
+      return pool2[Math.floor(Math.random()*pool2.length)];
+    }
+
+    /* === ネガティブ検出（メモから） === */
+    function isNegativeNote(s){
+      const t=(String(s||'').toLowerCase());
+      const pat=/(疲|つかれ|しんど|だる|つら|やめたい|無理|涙|泣|困|痛|頭痛|肩|腰|発熱|ねむ|眠|気分が|落ち込|最悪|やだ)/;
+      return pat.test(t);
+    }
+
+    /* === ステージ別プロンプト（決定済み・触らない） === */
+    function buildPromptForStage(stage, cat, env, now, weatherText){
+      const lines = [
+        `あなたは猫の視点で日本語の短文を1つだけ作る。句点で2〜4文、全体で300文字前後。`,
+        `猫: ${cat.name||'ネコ'} / 性格:${cat.personality||'不明'} / 特徴:${cat.favorites||'なし'} / 猫種:${cat.breed||'不明'}`,
+        `季節/時間/天気: ${seasonPhrase(now)}／${dayPhase(now)}／${weatherText}`,
+        `飼い主の性別:${env.ownerGender||'不明'}。今日のひとこと:${env.ownerNote||'（未入力）'}`,
+        `ネガ（しんどい/疲れた/嫌になった/やめたい 等）が含まれるときは、必ず寄り添う一文を入れる。`,
+        `年齢ステージ:${stage}（0=ひらがな100%, 1=漢字10%, 2=25%, 3=50%, 4=75%, 5=通常）。性格に合わせた一人称・口調にする。`,
+        (stage===0)
+          ? '出力は「ひらがなのみ」。カタカナ・漢字・英字・記号・絵文字・ハッシュタグは使わない。'
+          : `本文中の日本語文字に占める漢字の割合は最大${Math.round(STAGE_MAX[stage]*100)}%まで。これを厳密に守る。`,
+        `NG: 鳴き声（にゃ等）、具体的な年月日/曜日/時刻、絵文字、ハッシュタグ、前置き説明文。`,
+        `出力は本文のみ。`
+      ];
+      return lines.join('\n');
+    }
+
+    /* === つぶやき保存（カレンダーが読むフォーマット） === */
+    function saveTw(catId, ymd, text, weather){
+      const key = `${NS}:tw:${catId}`;
+      const box = JSON.parse(localStorage.getItem(key)||'{}');
+      box[ymd] = { text, weather: weather||'', ts: Date.now() };
+      localStorage.setItem(key, JSON.stringify(box));
+    }
+
+    /* === 既存本文の取得（重複回避用） === */
+    function loadTw(catId, ymd){
+      try{
+        const key = `${NS}:tw:${catId}`;
+        const box = JSON.parse(localStorage.getItem(key)||'{}');
+        return box[ymd]?.text || '';
+      }catch{ return ''; }
+    }
+
+    /* === 本体 === */
+    document.addEventListener('DOMContentLoaded', ()=>{
+      const catId=qs().get('catId')||qs().get('catid');
+      const cats=JSON.parse(localStorage.getItem(CATS_KEY)||'[]');
+      const cat=cats.find(c=>c.id===catId);
+      if(!cat){ alert('ネコ情報が見つかりません'); location.href='index_cats.html'; return; }
+
+      // 年齢計算
+      const now=todayJST();
+      const bday=toDate(cat.birthYear,cat.birthMonth,cat.birthDay);
+      let created = cat.createdAt? new Date(cat.createdAt): null;
+      if(!created || isNaN(created.getTime())){ created = new Date(); cat.createdAt=created.toISOString(); const i=cats.findIndex(c=>c.id===cat.id); if(i>=0){cats[i]=cat; localStorage.setItem(CATS_KEY,JSON.stringify(cats));} }
+      const assumed=bday || new Date(created.getTime()-182*24*3600*1000);
+      const ageYears=yearsBetween(assumed, now);
+
+      // プロフィール表示
+      const av=document.getElementById('cat-avatar');
+      document.getElementById('cat-name').textContent=cat.name||'ネコ';
+      document.getElementById('tw-title').textContent=(cat.name||'ネコ')+'のつぶやき';
+      if(cat.avatar){ av.innerHTML=''; const im=new Image(); im.src=cat.avatar; im.alt='avatar'; im.style.width='100%'; im.style.height='100%'; im.style.objectFit='cover'; av.appendChild(im); }
+      else{ av.textContent=firstChar(cat.name||'？'); av.style.background=colFor(cat.name||'?'); }
+
+      const ageEl=document.getElementById('cat-age');
+      if(ageYears!=null){
+        if(bday){
+          if(ageYears<2){ ageEl.textContent='年齢: '+Math.floor(ageYears*12)+'か月'; }
+          else{ const y=Math.floor(ageYears), m=Math.floor((ageYears-y)*12); ageEl.textContent=`年齢: ${y}歳 ${m}か月`; }
+        }else{
+          const months=Math.max(1, Math.floor((ageYears||0)*12));
+          ageEl.textContent=`年齢: 約${months}か月（推定）`;
+        }
+      }else{
+        ageEl.textContent='年齢: 不明';
+      }
+      document.getElementById('cat-breed').textContent='猫種: '+(cat.breed||'-');
+      document.getElementById('cat-personality').textContent='性格: '+(cat.personality||'-');
+      document.getElementById('cat-fav').textContent='特徴: '+(cat.favorites||'-');
+
+      // 日付＋天気
+      const dstr=localStorage.getItem(HOME_DATE)||'';
+      const weath=localStorage.getItem(HOME_WEATH)||'';
+      let disp=dstr; if(!disp){ disp = `${now.getFullYear()}年${now.getMonth()+1}月${now.getDate()}日（${yobi(now.getDay())}）`; }
+      document.getElementById('tw-date').textContent=`${disp} ${weatherEmoji(weath)}`;
+
+      // スナップ初期化
+      const snaps = window.Snaps.init({
+        catId: cat.id,
+        fileInputId: 'snap-file',
+        gridId: 'snap-grid',
+        maxSide: 1200
+      });
+
+      // SNSボタン制御
+      const btnFB=document.getElementById('btn-fb');
+      const btnIG=document.getElementById('btn-ig');
+      const btnTT=document.getElementById('btn-tt');
+      const btnX =document.getElementById('btn-x');
+      function shareText(){ return `「${(document.getElementById('tw-body').textContent||'').trim()}」 #necotubu`; }
+      function setDisabled(off){ [btnFB,btnIG,btnTT,btnX].forEach(b=> b.classList[off?'add':'remove']('disabled')); }
+      setDisabled(!snaps.hasSnaps());
+      snaps.onChange(() => setDisabled(!snaps.hasSnaps()));
+      async function webShareWithFile(fallback){
+        try{
+          const file = await snaps.latestFile('image/jpeg', (cat.name||'cat')+'.jpg');
+          if(file && navigator.canShare && navigator.canShare({files:[file]})){
+            await navigator.share({ text: shareText(), files:[file] });
+          }else{
+            await fallback();
+          }
+        }catch(_){ await fallback(); }
+      }
+      btnFB.addEventListener('click', async ()=>{ if(btnFB.classList.contains('disabled')) return;
+        await navigator.clipboard.writeText(shareText()); alert('文面をコピーしました。Facebookで写真を選び、文面を貼り付けてください。'); window.open('https://www.facebook.com/','_blank','noopener'); });
+      btnX.addEventListener('click', async ()=>{ if(btnX.classList.contains('disabled')) return;
+        const url='https://twitter.com/intent/tweet?text='+encodeURIComponent(clamp(shareText(), TWEET_MAX)); window.open(url,'_blank','noopener'); });
+      btnIG.addEventListener('click', async ()=>{ if(btnIG.classList.contains('disabled')) return;
+        await webShareWithFile(async ()=>{ try{ await navigator.clipboard.writeText(shareText()); alert('文面をコピーしました。Instagramで写真を選び、キャプションに貼り付けてください。'); }catch(_){}
+          window.open('https://www.instagram.com/','_blank','noopener'); }); });
+      btnTT.addEventListener('click', async ()=>{ if(btnTT.classList.contains('disabled')) return;
+        await webShareWithFile(async ()=>{ try{ await navigator.clipboard.writeText(shareText()); alert('文面をコピーしました。TikTokで写真/動画を選び、キャプションに貼り付けてください。'); }catch(_){}
+          window.open('https://www.tiktok.com/','_blank','noopener'); }); });
+
+      /* ================== つぶやき生成 ================== */
+      const loading=document.getElementById('tw-loading');
+      const body=document.getElementById('tw-body');
+      const regenBtn=document.getElementById('btn-regen');
+
+      async function generate({forceRegen=false}={}){
+        loading.style.display='block'; body.style.display='none'; body.textContent='';
+        regenBtn.classList.add('disabled');
+
+        const envForPrompt = {
+          ownerGender: localStorage.getItem(HOME_GENDER)||'',
+          ownerNote  : localStorage.getItem(HOME_NOTE)||''
+        };
+        const weatherText = weatherPhrase(weath);
+        const stage = stageOf(ageYears||2.5);
+        const cfg=(window.APP_CONFIG&&window.APP_CONFIG.GEMINI)||{};
+
+        const ymd = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+        const prevSaved = loadTw(cat.id, ymd);
+
+        if(!cfg.API_KEY){
+          body.textContent = localFallback(stage, envForPrompt, now, weath);
+          saveTw(cat.id, ymd, clamp(body.textContent, 320), weath);
+          loading.style.display='none'; body.style.display='block'; regenBtn.classList.remove('disabled'); return;
+        }
+
+        let finalText='';
+        const maxTry = 8;
+        for(let attempt=0; attempt<maxTry; attempt++){
+          const ctl=new AbortController(); const t=setTimeout(()=>ctl.abort(), (window.APP_CONFIG?.TIMEOUT_MS||15000));
+          try{
+            const out = sanitize(await callGemini(buildPromptForStage(stage, cat, envForPrompt, now, weatherText), ctl.signal));
+            // 検証
+            let ok=true;
+            // ステージ0：完全ひらがな
+            if(stage===0){ ok = !/[ァ-ヶ一-龠々]/.test(out); }
+            // ステージ1：漢字ほぼゼロ（2%まで）
+            else if(stage===1){ ok = kanjiRatio(out) <= 0.02 + 0.005; }
+            else if(stage<5){ ok = kanjiRatio(out) <= STAGE_MAX[stage] + 0.02; }
+            // 類似度：保存済み/直前と似てたらやり直し
+            const simPrev = similarity(out, prevSaved);
+            if(simPrev >= 0.82 && attempt<maxTry-1) ok=false;
+
+            if(ok){ finalText = out; }
+          }catch(_){ /* API失敗→次のリトライへ */ }
+          finally{ clearTimeout(t); }
+
+          if(finalText){ break; }
+        }
+
+        if(!finalText){
+          // 失敗：フォールバック（毎回違うパターン）
+          finalText = localFallback(stage, envForPrompt, now, weath);
+        }
+
+        // 3回に1回、ネガでなくてもやさしい1行を後ろに添える（1行だけ）
+        const note = envForPrompt.ownerNote||'';
+        const needGentle = isNegativeNote(note) || (Math.random()<0.333);
+        if(needGentle){
+          finalText = (finalText.trim() + '\n' + gentleLine(stage, (envForPrompt.ownerGender||'other'))).trim();
+        }
+
+        // 保存＆反映
+        finalText = clamp(finalText, 320);
+        saveTw(cat.id, ymd, finalText, weath);
+        loading.style.display='none';
+        body.style.display='block';
+        body.textContent = finalText || '……（うとうと）';
+        regenBtn.classList.remove('disabled');
+      }
+
+      // フォールバック：季節/時間のランダム素片で毎回少し違う短文
+      function localFallback(stage, env, now, w){
+        const moods = ['そよそよ','しっとり','ぽかぽか','ひやり','さらさら','もこもこ','ふんわり'];
+        const finds = ['ちいさな影','はっぱのゆれ','ちいさな音','ひかりの粒','まるい雲','窓のきず','すきま風'];
+        const t1 = moods[Math.floor(Math.random()*moods.length)];
+        const t2 = finds[Math.floor(Math.random()*finds.length)];
+        let s = `きょうの空気は${t1}。 ${t2}をじっと見てた。`;
+        if(stage<=1) s = s.replace(/[一-龠々]/g,''); // 念のため
+        const maybe = (Math.random()<0.5) ? ' 胸のなかがすこしあったかい。' : ' からだがゆるむかんじ。';
+        let out = (s + maybe).trim();
+        if(isNegativeNote(env.ownerNote)){ out += '\n' + gentleLine(stage, (env.ownerGender||'other')); }
+        return out;
+      }
+
+      // 初回生成
+      generate();
+
+      // 再生成（完全に毎回新規）
+      regenBtn.addEventListener('click', ()=>{ if(regenBtn.classList.contains('disabled')) return; generate({forceRegen:true}); });
+    });
+  })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Neco-Tubu ネコ登録</title>
+  <style>
+    :root{
+      --bg:#1C1A17; --surface:#3A2E25; --paper:#4B3F36;
+      --ink:#F5F1E6; --muted:#CBAE82; --primary:#FF7F32; --accent:#A3C586; --line:#5A5047;
+      --shadow:0 3px 12px rgba(0,0,0,.35); --r:16px;
+    }
+    *{box-sizing:border-box}
+    html,body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Noto Sans JP","Yu Gothic UI","Meiryo",sans-serif;line-height:1.6}
+    a{text-decoration:none;color:inherit}
+    header{position:sticky;top:0;z-index:20;background:var(--paper);border-bottom:1px solid var(--line);box-shadow:var(--shadow);padding:10px 12px}
+    header .bar{max-width:720px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:8px}
+    header h1{margin:0;font-size:18px;color:var(--primary)}
+    main{background:var(--surface);min-height:100vh;max-width:720px;margin:0 auto;padding:12px}
+    .card{background:var(--paper);border:1px solid var(--line);border-radius:var(--r);padding:14px;margin:12px 0;box-shadow:var(--shadow)}
+    label{font-weight:600;display:block;margin-top:8px}
+    input,select,textarea{width:100%;padding:10px;border-radius:10px;border:1px solid var(--line);margin-top:4px;background:#fff;color:#000}
+    textarea{resize:vertical}
+    .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+    .btn{padding:10px 14px;border-radius:12px;border:1px solid var(--line);cursor:pointer;background:var(--accent);color:#1C1A17}
+    .btn.primary{background:var(--primary);color:#fff;border-color:var(--primary)}
+    .btn.ghost{background:transparent;color:var(--ink)}
+    .hint{font-size:12px;color:var(--muted);margin-top:4px}
+    input[type=file]{position:absolute;left:-9999px;width:1px;height:1px;opacity:0}
+    .preview{width:84px;height:84px;border-radius:50%;overflow:hidden;border:2px solid var(--line);display:flex;align-items:center;justify-content:center;background:#333;color:#cbae82}
+    .preview img{width:100%;height:100%;object-fit:cover}
+  </style>
+</head>
+<body>
+  <header>
+    <div class="bar">
+      <h1>Neco-Tubu ネコ登録</h1>
+      <div class="row">
+        <a href="index_cats.html" class="btn">あなたのネコへ</a>
+        <a href="index_home.html" class="btn">ホームへ</a>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="card">
+      <h2 style="margin:0">ネコ登録</h2>
+
+      <label>名前</label>
+      <input id="f-name" type="text" placeholder="ネコの名前">
+
+      <label>生年月日</label>
+      <div class="row">
+        <select id="birth-year" style="flex:1"></select>
+        <select id="birth-month" style="flex:1"></select>
+        <select id="birth-day" style="flex:1"></select>
+      </div>
+
+      <label>顔写真（任意）</label>
+      <div class="row" style="align-items:center">
+        <label for="f-avatar" class="btn">写真を選ぶ</label>
+        <input id="f-avatar" type="file" accept="image/*">
+        <div id="avatar-preview" class="preview">No Img</div>
+      </div>
+      <p class="hint">選ぶと左の丸プレビューに表示します（長辺600pxに自動縮小保存）。</p>
+
+      <label>猫種・毛色（任意）</label>
+      <input id="f-breed" type="text" placeholder="例：三毛、茶トラ白、サバ白">
+
+      <label>テリトリー</label>
+      <select id="f-territory">
+        <option value="indoor">完全家ネコ</option>
+        <option value="outdoor">外出可ネコ</option>
+        <option value="stray">野良ネコ</option>
+        <option value="fantasy">妄想ネコ</option>
+      </select>
+
+      <label>性格</label>
+      <select id="personality">
+        <option value="">選択してください</option>
+        <option value="やんちゃ猫">やんちゃ猫</option>
+        <option value="哲学猫">哲学猫</option>
+        <option value="文学猫">文学猫</option>
+        <option value="夢見がち猫">夢見がち猫</option>
+        <option value="陽気猫">陽気猫</option>
+        <option value="男前猫">男前猫</option>
+        <option value="アイドル猫">アイドル猫</option>
+        <option value="甘えん坊猫">甘えん坊猫</option>
+        <option value="ツンデレ猫">ツンデレ猫</option>
+        <option value="冒険猫">冒険猫</option>
+      </select>
+
+      <label>好きなものや特徴</label>
+      <textarea id="f-favorites" rows="3" placeholder="例：猫じゃらし、日向ぼっこ、人懐っこい"></textarea>
+
+      <div class="row" style="margin-top:12px">
+        <button id="btn-save" class="btn primary">登録する</button>
+      </div>
+    </section>
+  </main>
+
+  <script src="js/config.js"></script>
+  <script src="js/api.js"></script>
+  <script>
+    (function(){
+      const CATS_KEY='necotubu_cats';
+      function loadCats(){ try{return JSON.parse(localStorage.getItem(CATS_KEY)||'[]')}catch(e){return[]} }
+      function saveCats(a){ localStorage.setItem(CATS_KEY, JSON.stringify(a)); }
+
+      function fillDateSelectors(){
+        const now=new Date(), thisYear=now.getFullYear();
+        const y=document.getElementById('birth-year');
+        const m=document.getElementById('birth-month');
+        const d=document.getElementById('birth-day');
+        y.innerHTML=''; m.innerHTML=''; d.innerHTML='';
+        y.appendChild(new Option('不明','unknown'));
+        for(let yy=thisYear; yy>=1995; yy--) y.appendChild(new Option(yy+'年', String(yy)));
+        y.value=String(thisYear-2);
+        m.appendChild(new Option('不明','unknown')); for(let mm=1; mm<=12; mm++) m.appendChild(new Option(mm+'月', String(mm)));
+        d.appendChild(new Option('不明','unknown')); for(let dd=1; dd<=31; dd++) d.appendChild(new Option(dd+'日', String(dd)));
+      }
+
+      function shrinkImage(file, maxSide){
+        return new Promise((resolve)=>{
+          const img=new Image(); const url=URL.createObjectURL(file);
+          img.onload=function(){
+            const s=Math.min(1, maxSide/Math.max(img.naturalWidth,img.naturalHeight));
+            const tw=Math.round(img.naturalWidth*s), th=Math.round(img.naturalHeight*s);
+            const c=document.createElement('canvas'); c.width=tw; c.height=th;
+            c.getContext('2d').drawImage(img,0,0,tw,th);
+            URL.revokeObjectURL(url);
+            resolve(c.toDataURL('image/jpeg',0.9));
+          };
+          img.onerror=function(){ URL.revokeObjectURL(url); resolve(null); };
+          img.src=url;
+        });
+      }
+
+      function qs(){ return new URLSearchParams(location.search||''); }
+
+      let editingId=null, avatarData=null;
+
+      document.addEventListener('DOMContentLoaded', ()=>{
+        fillDateSelectors();
+        const catId = qs().get('catId');
+        if(catId){
+          const cat=loadCats().find(c=>c.id===catId);
+          if(cat){
+            editingId=cat.id;
+            document.getElementById('f-name').value=cat.name||'';
+            document.getElementById('f-breed').value=cat.breed||'';
+            document.getElementById('f-territory').value=cat.territory||'indoor';
+            document.getElementById('personality').value=cat.personality||'';
+            document.getElementById('f-favorites').value=cat.favorites||'';
+            if(cat.birthYear!=null) document.getElementById('birth-year').value=String(cat.birthYear);
+            if(cat.birthMonth!=null) document.getElementById('birth-month').value=String(cat.birthMonth);
+            if(cat.birthDay!=null) document.getElementById('birth-day').value=String(cat.birthDay);
+            if(cat.avatar){
+              avatarData=cat.avatar;
+              const pv=document.getElementById('avatar-preview'); pv.innerHTML='';
+              const im=new Image(); im.src=avatarData; im.alt='avatar';
+              im.style.width='100%'; im.style.height='100%'; im.style.objectFit='cover';
+              pv.appendChild(im);
+            }
+          }
+        }
+      });
+
+      document.getElementById('f-avatar').addEventListener('change', async (e)=>{
+        const f=e.target.files && e.target.files[0]; if(!f) return;
+        const data=await shrinkImage(f,600);
+        if(!data){ alert('画像の読み込みに失敗しました。'); return; }
+        avatarData=data;
+        const pv=document.getElementById('avatar-preview'); pv.innerHTML='';
+        const im=new Image(); im.src=data; im.alt='avatar'; im.style.width='100%'; im.style.height='100%'; im.style.objectFit='cover';
+        pv.appendChild(im);
+      });
+
+      document.getElementById('btn-save').addEventListener('click', ()=>{
+        const name=(document.getElementById('f-name').value||'').trim();
+        if(!name){ alert('名前を入力してください。'); return; }
+
+        const y=document.getElementById('birth-year').value;
+        const m=document.getElementById('birth-month').value;
+        const d=document.getElementById('birth-day').value;
+
+        const cat={
+          id: editingId || ('cat_'+Date.now()),
+          name,
+          birthYear:(y==='unknown'?null:Number(y)),
+          birthMonth:(m==='unknown'?null:Number(m)),
+          birthDay:(d==='unknown'?null:Number(d)),
+          breed:document.getElementById('f-breed').value||'',
+          territory:document.getElementById('f-territory').value||'indoor',
+          personality:document.getElementById('personality').value||'',
+          favorites:document.getElementById('f-favorites').value||'',
+          avatar:avatarData||''
+        };
+
+        const arr=loadCats();
+        const i=arr.findIndex(c=>c.id===cat.id);
+        if(i>=0) arr[i]=cat; else arr.push(cat);
+        saveCats(arr);
+        alert('保存しました。');
+        location.href='index_cats.html';
+      });
+    })();
+  </script>
+</body>
+</html>

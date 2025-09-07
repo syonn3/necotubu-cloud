@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Neco-Tubu ネコのつぶやき</title>
+  <style>
+    :root{
+      --bg:#1c1a17; --surface:#2a211b; --card:#3b3128;
+      --ink:#f5f1e6; --muted:#cbae82; --primary:#ff7f32; --accent:#a3c586; --line:#53473f;
+      --shadow:0 3px 12px rgba(0,0,0,.35); --r:14px;
+    }
+    *{box-sizing:border-box}
+    html,body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Noto Sans JP","Yu Gothic UI","Meiryo",sans-serif;line-height:1.6}
+    a{text-decoration:none;color:inherit}
+    header{position:sticky;top:0;z-index:10;background:var(--card);border-bottom:1px solid var(--line);box-shadow:var(--shadow);padding:12px 14px}
+    header .bar{max-width:720px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:8px}
+    header h1{margin:0;font-size:18px;color:var(--primary)}
+    .btn{display:inline-block;padding:10px 14px;border-radius:12px;border:1px solid var(--line);background:var(--accent);color:#1c1a17;cursor:pointer}
+    .btn.primary{background:var(--primary);color:#fff;border-color:var(--primary)}
+    .btn.danger{background:#8d3a3a;color:#fff;border-color:#8d3a3a}
+    main{max-width:720px;margin:0 auto;background:var(--surface);min-height:100vh;padding:16px 12px 24px}
+    .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:14px;margin:16px 0;box-shadow:var(--shadow)}
+    .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+    .hint{color:var(--muted);font-size:12px}
+    /* ネコ行 */
+    .cat-row{display:flex;gap:12px;align-items:center}
+    .cat-name{font-weight:700;margin:0 0 6px 0}
+    /* アバター */
+    .avatar{width:64px;height:64px;border-radius:50%;overflow:hidden;border:2px solid var(--line);display:flex;align-items:center;justify-content:center;background:#6a6159;color:#fff;font-weight:800;font-size:20px}
+    .avatar img{width:100%;height:100%;object-fit:cover}
+  </style>
+</head>
+<body>
+  <header>
+    <div class="bar">
+      <h1>Neco-Tubu ネコのつぶやき</h1>
+      <a href="index_home.html" class="btn">ホームへ</a>
+    </div>
+  </header>
+
+  <main>
+    <div class="card">
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <h2 style="margin:0">あなたのネコ</h2>
+        <a href="index_register.html" class="btn">ネコの新規登録</a>
+      </div>
+      <div id="cats-list"></div>
+      <p class="hint" id="emptyMsg" style="display:none">まだネコが登録されていません。</p>
+    </div>
+  </main>
+
+  <script src="js/config.js"></script>
+  <script src="js/api.js"></script>
+  <script>
+    (function(){
+      const CATS_KEY='necotubu_cats';
+      function loadCats(){ try{return JSON.parse(localStorage.getItem(CATS_KEY)||'[]')}catch(e){return[]} }
+      function saveCats(a){ localStorage.setItem(CATS_KEY, JSON.stringify(a)); }
+
+      const AVA_COLS=['#7E5A3C','#6B7A40','#AD6A3B','#5E5347','#8C7448','#7A614C','#9A6E4D'];
+      function firstChar(s){ s=(s||'').trim(); return s ? s[0] : '？' }
+      function colFor(str){ let h=0; for(let i=0;i<str.length;i++) h=(h*31+str.charCodeAt(i))|0; return AVA_COLS[Math.abs(h)%AVA_COLS.length]; }
+
+      function render(){
+        const wrap=document.getElementById('cats-list'); wrap.innerHTML='';
+        const emptyMsg=document.getElementById('emptyMsg');
+        const arr=loadCats();
+        emptyMsg.style.display = arr.length? 'none':'block';
+        arr.forEach(cat=>{
+          const card=document.createElement('div'); card.className='card';
+          const row=document.createElement('div'); row.className='cat-row';
+
+          const av=document.createElement('div'); av.className='avatar';
+          if(cat.avatar){ const im=document.createElement('img'); im.src=cat.avatar; im.alt=(cat.name||'ネコ')+'の写真'; av.appendChild(im); }
+          else{ av.style.background=colFor(cat.name||'?'); av.textContent=firstChar(cat.name||'?'); }
+
+          const info=document.createElement('div'); info.style.flex='1';
+          const name=document.createElement('p'); name.className='cat-name'; name.textContent=cat.name||'ネコ';
+
+          const acts=document.createElement('div'); acts.className='row';
+          const b1=document.createElement('a'); b1.className='btn primary'; b1.textContent='この子のつぶやき'; b1.href='index_diary.html?catId='+encodeURIComponent(cat.id);
+          const b2=document.createElement('a'); b2.className='btn'; b2.textContent='編集'; b2.href='index_register.html?catId='+encodeURIComponent(cat.id);
+          const b3=document.createElement('button'); b3.className='btn danger'; b3.textContent='削除';
+          b3.onclick=function(){
+            if(confirm('「'+(cat.name||'ネコ')+'」を削除します。よろしいですか？')){
+              const next=loadCats().filter(c=>c.id!==cat.id); saveCats(next); render();
+            }
+          };
+
+          acts.appendChild(b1); acts.appendChild(b2); acts.appendChild(b3);
+          info.appendChild(name); info.appendChild(acts);
+          row.appendChild(av); row.appendChild(info);
+          card.appendChild(row); wrap.appendChild(card);
+        });
+      }
+
+      document.addEventListener('DOMContentLoaded', render);
+    })();
+  </script>
+</body>
+</html>

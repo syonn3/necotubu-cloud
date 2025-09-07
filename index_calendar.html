@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Neco-Tubu カレンダー</title>
+  <style>
+    :root{--bg:#1c1a17;--surface:#2a211b;--card:#3b3128;--ink:#f5f1e6;--muted:#cbae82;--primary:#ff7f32;--accent:#a3c586;--line:#53473f;--shadow:0 3px 12px rgba(0,0,0,.35);--r:14px}
+    *{box-sizing:border-box}
+    html,body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Noto Sans JP","Meiryo",sans-serif;line-height:1.6}
+    a{text-decoration:none;color:inherit}
+    header{position:sticky;top:0;z-index:10;background:var(--card);border-bottom:1px solid var(--line);box-shadow:var(--shadow);padding:12px 14px}
+    header .bar{max-width:720px;margin:0 auto;display:flex;align-items:center;justify-content:space-between}
+    header h1{margin:0;font-size:18px;color:var(--primary)}
+    .btn{display:inline-block;padding:8px 12px;border-radius:10px;border:1px solid var(--line);background:var(--accent);color:#1c1a17;cursor:pointer}
+    main{max-width:720px;margin:0 auto;background:var(--surface);min-height:100vh;padding:16px 12px 24px}
+    .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:14px;margin:16px 0;box-shadow:var(--shadow)}
+    .cal-head{display:flex;gap:8px;align-items:center;justify-content:center;margin-bottom:8px}
+    .cal{width:100%;border-collapse:collapse;font-size:13px}
+    .cal th,.cal td{width:calc(100%/7);text-align:center;padding:6px;border:1px solid #463a32}
+    .cal th{color:var(--muted);font-weight:600;background:#2b231d}
+    .cal td.disabled{opacity:.35;background:#241e18}
+    .cal td.today{outline:2px solid var(--accent)}
+    .cal td.hit{background:rgba(255,127,50,.13)}
+    .legend{font-size:12px;color:var(--muted)}
+    .snap-thumb{width:110px;height:110px;border-radius:10px;overflow:hidden;border:1px solid var(--line);background:#000}
+    .snap-thumb img{width:100%;height:100%;object-fit:cover}
+    .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  </style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <h1>Neco-Tubu カレンダー</h1>
+    <div class="row">
+      <a class="btn" href="index_home.html">HOME</a>
+      <a id="btn-diary" class="btn" href="#">つぶやきへ</a>
+    </div>
+  </div>
+</header>
+
+<main>
+  <section class="card">
+    <div id="cal-head" class="cal-head"></div>
+    <table class="cal">
+      <thead><tr><th>日</th><th>月</th><th>火</th><th>水</th><th>木</th><th>金</th><th>土</th></tr></thead>
+      <tbody id="cal-body"></tbody>
+    </table>
+    <p class="legend">● つぶやき／スナップがある日はハイライト　※未来日は選べません</p>
+  </section>
+
+  <section class="card">
+    <h3 id="detail-title" style="margin:0 0 8px 0"></h3>
+    <div id="detail-tw" class="row" style="margin-bottom:8px"></div>
+    <div id="detail-snaps" class="row"></div>
+  </section>
+</main>
+
+<script src="js/config.js"></script>
+<script>
+(function(){
+  const CATS_KEY='necotubu_cats';
+  // いまのNSと、過去互換NSをすべて見る
+  const CUR_NS=(window.APP_CONFIG&&window.APP_CONFIG.STORAGE_NS)||'necotubu_v1';
+  const NS_CAND=[CUR_NS,'necotubu_v1','necotubu_dev','necotubu_stg','necotubu_prod'];
+  const TW_KEYS = ns => ns+':tw:';          // diary保存
+  const SNAP_PREFIX='necotubu_snaps:';      // snaps.js（NSなし運用）
+
+  const pad2=n=>String(n).padStart(2,'0');
+  const toJST=d=>new Date(d.toLocaleString('ja-JP',{timeZone:'Asia/Tokyo'}));
+  const today=toJST(new Date());
+  const toYMD=d=>`${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`;
+  const yobi=n=>'日月火水木金土'.charAt(n%7);
+  const qs=()=>new URLSearchParams(location.search||'');
+
+  const cats=JSON.parse(localStorage.getItem(CATS_KEY)||'[]');
+  const catId=qs().get('catId')||qs().get('catid')||(cats[0]?.id||'');
+  if(!catId){ alert('ネコ情報が見つかりません'); location.href='index_cats.html'; return; }
+  document.getElementById('btn-diary').href='index_diary.html?catId='+encodeURIComponent(catId);
+
+  // つぶやき読込（全NSをマージ）
+  function loadTwAll(catId){
+    const merged={};
+    NS_CAND.forEach(ns=>{
+      try{
+        const obj=JSON.parse(localStorage.getItem(TW_KEYS(ns)+catId)||'{}');
+        Object.assign(merged,obj);
+      }catch{}
+    });
+    return merged; // {ymd:{text,ts,weather}}
+  }
+  // スナップ読込（従来の配列）
+  function loadSnaps(catId){
+    try{ return JSON.parse(localStorage.getItem(SNAP_PREFIX+catId)||'[]'); }catch{ return []; }
+  }
+
+  // カレンダー
+  let cur=new Date(today.getFullYear(),today.getMonth(),1);
+  function renderHead(){
+    const h=document.getElementById('cal-head'); h.innerHTML='';
+    function btn(t,fn){const b=document.createElement('button'); b.className='btn'; b.textContent=t; b.onclick=fn; return b;}
+    h.appendChild(btn('«年',()=>{const d=new Date(cur); d.setFullYear(d.getFullYear()-1); if(d>today)return; cur=d; draw();}));
+    h.appendChild(btn('«月',()=>{const d=new Date(cur); d.setMonth(d.getMonth()-1); if(d>today)return; cur=d; draw();}));
+    const title=document.createElement('div'); title.textContent=`${cur.getFullYear()}年${cur.getMonth()+1}月`; title.style.minWidth='140px'; title.style.textAlign='center'; h.appendChild(title);
+    h.appendChild(btn('月»',()=>{const d=new Date(cur); d.setMonth(d.getMonth()+1); if(new Date(d.getFullYear(),d.getMonth()+1,0)>today)return; cur=d; draw();}));
+    h.appendChild(btn('年»',()=>{const d=new Date(cur); d.setFullYear(d.getFullYear()+1); if(new Date(d.getFullYear(),d.getMonth()+1,0)>today)return; cur=d; draw();}));
+  }
+
+  function draw(){
+    const tbody=document.getElementById('cal-body'); tbody.innerHTML='';
+    const first=new Date(cur.getFullYear(),cur.getMonth(),1);
+    const last =new Date(cur.getFullYear(),cur.getMonth()+1,0);
+    const start=first.getDay();
+    const rows=Math.ceil((start+last.getDate())/7);
+
+    const twSet = loadTwAll(catId);                   // {ymd:{...}}
+    const snaps = loadSnaps(catId);                   // [{data,ts,ymd?...}]
+    const snapSet=new Set(snaps.map(it=> it.ymd || toYMD(new Date(it.ts||0))));
+
+    function isHit(day){
+      const ymd=`${cur.getFullYear()}-${pad2(cur.getMonth()+1)}-${pad2(day)}`;
+      return !!twSet[ymd] || snapSet.has(ymd);
+    }
+
+    let d=1;
+    for(let r=0;r<rows;r++){
+      const tr=document.createElement('tr');
+      for(let c=0;c<7;c++){
+        const td=document.createElement('td');
+        if(r===0&&c<start || d>last.getDate()){
+          td.textContent='';
+        }else{
+          td.textContent=d;
+          const cd=new Date(cur.getFullYear(),cur.getMonth(),d);
+          if(cd>today) td.classList.add('disabled');
+          if(toYMD(cd)===toYMD(today)) td.classList.add('today');
+          if(isHit(d)) td.classList.add('hit');
+          td.style.cursor='pointer';
+          td.onclick=()=>{ if(cd>today)return; showDetail(cd, twSet, snaps); };
+          d++;
+        }
+        tr.appendChild(td);
+      }
+      tbody.appendChild(tr);
+    }
+    // デフォルト選択
+    const init=(cur.getFullYear()===today.getFullYear()&&cur.getMonth()===today.getMonth())?today:new Date(cur.getFullYear(),cur.getMonth(),last.getDate());
+    showDetail(init, twSet, snaps);
+  }
+
+  function showDetail(d, twSet, snaps){
+    document.getElementById('detail-title').textContent=`${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日（${yobi(d.getDay())}）`;
+    const ymd=toYMD(d);
+    const areaTw=document.getElementById('detail-tw');
+    const areaSn=document.getElementById('detail-snaps');
+    areaTw.innerHTML=''; areaSn.innerHTML='';
+
+    const tw=twSet[ymd];
+    if(tw && tw.text){ const p=document.createElement('p'); p.textContent=tw.text; p.style.margin='0'; areaTw.appendChild(p); }
+    else{ const p=document.createElement('p'); p.className='legend'; p.style.margin='0'; p.textContent='この日のつぶやきは未登録です。'; areaTw.appendChild(p); }
+
+    const list=snaps.filter(it=> (it.ymd||toYMD(new Date(it.ts||0)))===ymd);
+    if(list.length){
+      list.forEach(it=>{ const box=document.createElement('div'); box.className='snap-thumb'; const img=new Image(); img.src=it.data||it.base||''; box.appendChild(img); areaSn.appendChild(box); });
+    }else{
+      const p=document.createElement('p'); p.className='legend'; p.style.margin='0'; p.textContent='この日のスナップは未登録です。'; areaSn.appendChild(p);
+    }
+  }
+
+  renderHead(); draw();
+})();
+</script>
+</body>
+</html>

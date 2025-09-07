@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Neco-Tubu β（知人限定）</title>
+  <style>
+    :root{
+      --bg:#1c1a17; --paper:#2e2b28; --ink:#f5f1e6; --muted:#cbae82; --primary:#ff7f32; --accent:#a3c586; --line:#4a453f;
+      --shadow:0 3px 12px rgba(0,0,0,.4); --r:16px;
+    }
+    *{box-sizing:border-box}
+    html,body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Noto Sans JP","Yu Gothic UI","Meiryo",sans-serif;line-height:1.6}
+    header{position:sticky;top:0;z-index:10;background:var(--paper);border-bottom:1px solid var(--line);box-shadow:var(--shadow)}
+    header .in{max-width:980px;margin:0 auto;padding:10px 12px;display:flex;align-items:center;justify-content:space-between}
+    header h1{margin:0;font-size:18px;color:var(--primary)}
+    main{max-width:980px;margin:0 auto;padding:12px}
+    .card{background:var(--paper);border:1px solid var(--line);border-radius:var(--r);padding:14px;margin:12px 0;box-shadow:var(--shadow)}
+    label{display:block;font-weight:600}
+    input{width:100%;padding:10px;border:1px solid var(--line);border-radius:12px;background:#fff;color:#000;margin-top:4px}
+    .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+    .btn{appearance:none;border:1px solid var(--line);background:var(--accent);border-radius:12px;padding:10px 14px;font-size:15px;color:#1c1a17;cursor:pointer}
+    .btn.primary{background:var(--primary);color:#fff;border-color:var(--primary)}
+    .muted{color:var(--muted);font-size:12px}
+    .nav{display:flex;gap:8px;flex-wrap:wrap}
+    iframe{width:100%;height:70vh;border:1px solid var(--line);border-radius:12px;background:#000}
+    .right{display:flex;align-items:center;gap:8px}
+  </style>
+</head>
+<body>
+  <header>
+    <div class="in">
+      <h1>Neco-Tubu β（知人限定）</h1>
+      <div class="right">
+        <span id="who" class="muted"></span>
+        <button id="logout" class="btn">サインアウト</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <!-- 未ログイン時：ログインカード -->
+    <section id="loginCard" class="card" style="display:none">
+      <h2 style="margin:0 0 8px 0">招待制ログイン</h2>
+      <label>メールアドレス</label>
+      <input id="email" type="email" placeholder="招待されたメールを入力">
+      <label style="margin-top:10px">合言葉</label>
+      <input id="pass" type="text" placeholder="nekotubu-beta">
+      <div class="row" style="margin-top:12px">
+        <button id="doLogin" class="btn primary">ベータに入る</button>
+      </div>
+      <p class="muted" style="margin-top:8px">※ 招待メールと合言葉が一致する方のみ利用できます。</p>
+    </section>
+
+    <!-- ログイン後：ナビ＋iframe -->
+    <section id="appCard" class="card" style="display:none">
+      <h2 style="margin:0 0 8px 0">ベータ版ナビ</h2>
+      <div class="nav">
+        <button class="btn primary" data-page="index_home.html?env=stg">ホーム</button>
+        <button class="btn" data-page="index_cats.html#cats?env=stg">あなたのネコ</button>
+        <button class="btn" data-page="index_cats.html#register?env=stg">ネコ登録</button>
+        <button class="btn" data-page="index_diary.html?env=stg">今日の記録</button>
+        <button class="btn" data-page="index_calendar.html?env=stg">カレンダー</button>
+      </div>
+      <p class="muted" style="margin:8px 0 12px">※ ベータ用データ領域（stg）を使用します。本番とは分離されています。</p>
+      <iframe id="frame" title="Neco-Tubu App"></iframe>
+    </section>
+  </main>
+
+  <!-- 設定＆ベータ認証 -->
+  <script src="js/config.js"></script>
+  <script src="js/auth.js"></script>
+  <script>
+    (function(){
+      const who = document.getElementById('who');
+      const loginCard = document.getElementById('loginCard');
+      const appCard = document.getElementById('appCard');
+      const frame = document.getElementById('frame');
+      const logoutBtn = document.getElementById('logout');
+
+      function showLogin(){ loginCard.style.display='block'; appCard.style.display='none'; who.textContent=''; }
+      function showApp(user){
+        loginCard.style.display='none'; appCard.style.display='block';
+        who.textContent = (user && user.email) ? ('Logged in: ' + user.email) : '';
+        // 既定：ホームを表示（必ず stg 環境クエリつき）
+        frame.src = 'index_home.html?env=stg';
+      }
+
+      // 初期
+      const u = window.APP_AUTH.currentUser();
+      if(u){ showApp(u); } else { showLogin(); }
+
+      // ナビ
+      document.querySelectorAll('[data-page]').forEach(btn=>{
+        btn.addEventListener('click', ()=>{
+          const p = btn.getAttribute('data-page');
+          frame.src = p;
+        });
+      });
+
+      // ログイン
+      document.getElementById('doLogin').addEventListener('click', async ()=>{
+        const email = document.getElementById('email').value.trim();
+        const pass = document.getElementById('pass').value.trim();
+        try{
+          const sess = await window.APP_AUTH.signInLocal(email, pass);
+          showApp(sess);
+          alert('ようこそ！ベータ版に入りました。');
+        }catch(e){
+          alert(e && e.message ? e.message : 'ログインに失敗しました。');
+        }
+      });
+
+      // サインアウト
+      logoutBtn.addEventListener('click', ()=>{
+        window.APP_AUTH.signOut();
+        showLogin();
+      });
+    })();
+  </script>
+</body>
+</html>
