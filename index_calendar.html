@@ -60,11 +60,10 @@
 <script>
 (function(){
   const CATS_KEY='necotubu_cats';
-  // いまのNSと、過去互換NSをすべて見る
   const CUR_NS=(window.APP_CONFIG&&window.APP_CONFIG.STORAGE_NS)||'necotubu_v1';
   const NS_CAND=[CUR_NS,'necotubu_v1','necotubu_dev','necotubu_stg','necotubu_prod'];
-  const TW_KEYS = ns => ns+':tw:';          // diary保存
-  const SNAP_PREFIX='necotubu_snaps:';      // snaps.js（NSなし運用）
+  const TW_KEYS = ns => ns+':tw:';
+  const SNAP_PREFIX='necotubu_snaps:';
 
   const pad2=n=>String(n).padStart(2,'0');
   const toJST=d=>new Date(d.toLocaleString('ja-JP',{timeZone:'Asia/Tokyo'}));
@@ -78,7 +77,6 @@
   if(!catId){ alert('ネコ情報が見つかりません'); location.href='index_cats.html'; return; }
   document.getElementById('btn-diary').href='index_diary.html?catId='+encodeURIComponent(catId);
 
-  // つぶやき読込（全NSをマージ）
   function loadTwAll(catId){
     const merged={};
     NS_CAND.forEach(ns=>{
@@ -87,34 +85,36 @@
         Object.assign(merged,obj);
       }catch{}
     });
-    return merged; // {ymd:{text,ts,weather}}
+    return merged;
   }
-  // スナップ読込（従来の配列）
   function loadSnaps(catId){
     try{ return JSON.parse(localStorage.getItem(SNAP_PREFIX+catId)||'[]'); }catch{ return []; }
   }
 
-  // カレンダー
   let cur=new Date(today.getFullYear(),today.getMonth(),1);
   function renderHead(){
     const h=document.getElementById('cal-head'); h.innerHTML='';
     function btn(t,fn){const b=document.createElement('button'); b.className='btn'; b.textContent=t; b.onclick=fn; return b;}
-    h.appendChild(btn('«年',()=>{const d=new Date(cur); d.setFullYear(d.getFullYear()-1); if(d>today)return; cur=d; draw();}));
-    h.appendChild(btn('«月',()=>{const d=new Date(cur); d.setMonth(d.getMonth()-1); if(d>today)return; cur=d; draw();}));
-    const title=document.createElement('div'); title.textContent=`${cur.getFullYear()}年${cur.getMonth()+1}月`; title.style.minWidth='140px'; title.style.textAlign='center'; h.appendChild(title);
-    h.appendChild(btn('月»',()=>{const d=new Date(cur); d.setMonth(d.getMonth()+1); if(new Date(d.getFullYear(),d.getMonth()+1,0)>today)return; cur=d; draw();}));
-    h.appendChild(btn('年»',()=>{const d=new Date(cur); d.setFullYear(d.getFullYear()+1); if(new Date(d.getFullYear(),d.getMonth()+1,0)>today)return; cur=d; draw();}));
+
+    h.appendChild(btn('«年',()=>{const d=new Date(cur); d.setFullYear(d.getFullYear()-1); if(d>today) return; cur=d; draw();}));
+    h.appendChild(btn('«月',()=>{const d=new Date(cur); d.setMonth(d.getMonth()-1); if(d>today) return; cur=d; draw();}));
+
+    const title=document.createElement('div'); title.id='cal-title'; title.textContent=`${cur.getFullYear()}年${cur.getMonth()+1}月`; title.style.minWidth='140px'; title.style.textAlign='center'; h.appendChild(title);
+
+    h.appendChild(btn('月»',()=>{ const d=new Date(cur); d.setMonth(d.getMonth()+1); if (d.getFullYear()>today.getFullYear() || (d.getFullYear()===today.getFullYear() && d.getMonth()>today.getMonth())) return; cur=d; draw(); }));
+    h.appendChild(btn('年»',()=>{ const d=new Date(cur); d.setFullYear(d.getFullYear()+1); if (d.getFullYear()>today.getFullYear() || (d.getFullYear()===today.getFullYear() && d.getMonth()>today.getMonth())) return; cur=d; draw(); }));
   }
 
   function draw(){
+    const titleEl=document.getElementById('cal-title'); if(titleEl){ titleEl.textContent=`${cur.getFullYear()}年${cur.getMonth()+1}月`; }
     const tbody=document.getElementById('cal-body'); tbody.innerHTML='';
     const first=new Date(cur.getFullYear(),cur.getMonth(),1);
     const last =new Date(cur.getFullYear(),cur.getMonth()+1,0);
     const start=first.getDay();
     const rows=Math.ceil((start+last.getDate())/7);
 
-    const twSet = loadTwAll(catId);                   // {ymd:{...}}
-    const snaps = loadSnaps(catId);                   // [{data,ts,ymd?...}]
+    const twSet = loadTwAll(catId);
+    const snaps = loadSnaps(catId);
     const snapSet=new Set(snaps.map(it=> it.ymd || toYMD(new Date(it.ts||0))));
 
     function isHit(day){
@@ -143,7 +143,6 @@
       }
       tbody.appendChild(tr);
     }
-    // デフォルト選択
     const init=(cur.getFullYear()===today.getFullYear()&&cur.getMonth()===today.getMonth())?today:new Date(cur.getFullYear(),cur.getMonth(),last.getDate());
     showDetail(init, twSet, snaps);
   }
