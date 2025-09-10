@@ -1,6 +1,9 @@
 // js/config.js — 環境切り替え＋招待制ベータ＋Gemini API 設定（完成版）
 (function (global) {
-  const UNIFIED_NS = "necotubu_v1"; // ← どの環境でも同じにして写真などが消えないよう統一
+  const UNIFIED_NS = "necotubu_v1"; // 写真やデータを環境間で共通化
+
+  // ★ ここを書き換える：新しい Gemini API キーを入れてください（dev/prod両方に適用）
+  const DEFAULT_GEMINI_API_KEY = "AIzaSyAMvJlxlfBnmBKOzzwPWdEe1tUzW4_v7CU";
 
   const ENVS = {
     dev: {
@@ -13,8 +16,7 @@
       ALLOWLIST_EMAILS: [],
       BETA_PASSCODE: "nekotubu-beta",
       GEMINI: {
-        // ★ご提供いただいたキー（ローカル検証用）
-        API_KEY: "AIzaSyC2R3Bi2AFbAfkbHzn0nrAz-GJ_BHTaQTI",
+        API_KEY: DEFAULT_GEMINI_API_KEY,
         MODEL: "gemini-1.5-flash",
         MAX_TOKENS: 400,
         TEMPERATURE: 1.05
@@ -27,13 +29,10 @@
       FEATURE_FLAGS: { diaryAutoSave: true },
       STORAGE_NS: UNIFIED_NS,
       FIREBASE: { apiKey: "", authDomain: "", projectId: "", storageBucket: "", messagingSenderId: "", appId: "" },
-      ALLOWLIST_EMAILS: [
-        "syonn@mac.com",
-        "syonn3@gmail.com"
-      ],
+      ALLOWLIST_EMAILS: ["syonn@mac.com","syonn3@gmail.com"],
       BETA_PASSCODE: "nekotubu-beta",
       GEMINI: {
-        API_KEY: "", // ← ベータ用に分けたい場合はここに入れてください
+        API_KEY: "", // 必要ならベータ用キーを入れてください（空なら無効）
         MODEL: "gemini-1.5-flash",
         MAX_TOKENS: 400,
         TEMPERATURE: 1.05
@@ -49,8 +48,8 @@
       ALLOWLIST_EMAILS: [],
       BETA_PASSCODE: "",
       GEMINI: {
-        // 本番でも同じキーで検証できるよう暫定で投入（分けるなら空にして後で差し替え）
-        API_KEY: "AIzaSyC2R3Bi2AFbAfkbHzn0nrAz-GJ_BHTaQTI",
+        // github.dev などの本番相当（ここにも新キーを必ず入れる）
+        API_KEY: DEFAULT_GEMINI_API_KEY,
         MODEL: "gemini-1.5-flash",
         MAX_TOKENS: 400,
         TEMPERATURE: 1.05
@@ -65,10 +64,10 @@
       if (q && ENVS[q]) return q;
 
       const h = (location.hostname || "").toLowerCase();
-      // ★ 127.0.0.1 / 0.0.0.0 / file: でも dev 判定にする
+      // 127.0.0.1 / 0.0.0.0 / file: は dev 扱い
       if (h === "localhost" || h === "127.0.0.1" || h === "0.0.0.0" || location.protocol === "file:") return "dev";
       if (h.includes("-stg") || h.startsWith("stg.") || h.startsWith("beta.")) return "stg";
-      return "prod";
+      return "prod"; // github.dev は通常こちら
     } catch (e) {
       return "prod";
     }
@@ -77,6 +76,7 @@
   const ENV_NAME = detectEnv();
   const ENV = ENVS[ENV_NAME];
 
+  // ここから外に出す（ブラウザからは APP_CONFIG のみ見える）
   global.APP_CONFIG = {
     ENV: ENV.NAME,
     API_BASE_URL: ENV.API_BASE_URL,
@@ -88,4 +88,9 @@
     BETA_PASSCODE: ENV.BETA_PASSCODE,
     GEMINI: ENV.GEMINI
   };
+
+  // ネスト設定の「別名」も用意（既存コードとの両対応）
+  global.APP_CONFIG.GEMINI_API_KEY = (global.APP_CONFIG.GEMINI && global.APP_CONFIG.GEMINI.API_KEY) || "";
+  global.APP_CONFIG.GEMINI_MODEL   = (global.APP_CONFIG.GEMINI && global.APP_CONFIG.GEMINI.MODEL)   || "gemini-1.5-flash";
+
 })(window);

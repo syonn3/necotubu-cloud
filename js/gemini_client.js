@@ -15,9 +15,10 @@
   }
 
   async function call(model, body, {signal}={}){
-    const key = (CFG.GEMINI && CFG.GEMINI.API_KEY) || "";
+    const key = (CFG.GEMINI && CFG.GEMINI.API_KEY) || CFG.GEMINI_API_KEY || "";
     if(!key) throw Object.assign(new Error("NO_API_KEY"), {code:"NO_API_KEY"});
-    const url = `${BASE}/models/${encodeURIComponent(model)}:generateContent`;
+    const url = `${BASE}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
+
     const res = await withTimeout(fetch(url, {
       method: "POST",
       mode: "cors",
@@ -46,7 +47,7 @@
   async function ping(){
     const model = (CFG.GEMINI && CFG.GEMINI.MODEL) || "gemini-1.5-flash";
     const body = {
-      contents: [{ parts: [{ text: "返事はOKだけ" }]}],
+      contents: [{ role: "user", parts: [{ text: "返事はOKだけ" }]}],
       generationConfig: { maxOutputTokens: 2, temperature: 0 }
     };
     const ctl = new AbortController();
@@ -62,7 +63,7 @@
       maxOutputTokens: opt.maxTokens ?? (CFG.GEMINI && CFG.GEMINI.MAX_TOKENS) ?? 400,
       topK: 40, topP: 0.95
     };
-    const body = { contents: [{ parts:[{ text: prompt }]}], generationConfig };
+    const body = { contents: [{ role: "user", parts:[{ text: prompt }]}], generationConfig };
     // 簡易リトライ（429/5xx/timeout）: 最大2回
     let lastErr = null;
     for(let i=0;i<3;i++){
