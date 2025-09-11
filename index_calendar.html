@@ -60,10 +60,16 @@
 <script>
 (function(){
   const CATS_KEY='necotubu_cats';
+
+  // ★ つぶやきは NS（バージョン）をまたいで集約
   const CUR_NS=(window.APP_CONFIG&&window.APP_CONFIG.STORAGE_NS)||'necotubu_v1';
   const NS_CAND=[CUR_NS,'necotubu_v1','necotubu_dev','necotubu_stg','necotubu_prod'];
   const TW_KEYS = ns => ns+':tw:';
-  const SNAP_PREFIX='necotubu_snaps:';
+
+  // ★ スナップは新形式＋当日ボックス＋旧形式をフォールバックで読む
+  const KEY_CAL_PREFIX   = 'necotubu_snaps_calendar:';  // { "YYYY-MM-DD": [Snap] }
+  const KEY_TODAY_PREFIX = 'necotubu_snaps_today:';     // { date, items }
+  const KEY_LEGACY       = 'necotubu_snaps:';           // [Snap] 旧（互換）
 
   const pad2=n=>String(n).padStart(2,'0');
   const toJST=d=>new Date(d.toLocaleString('ja-JP',{timeZone:'Asia/Tokyo'}));
@@ -77,6 +83,7 @@
   if(!catId){ alert('ネコ情報が見つかりません'); location.href='index_cats.html'; return; }
   document.getElementById('btn-diary').href='index_diary.html?catId='+encodeURIComponent(catId);
 
+  /* ===== つぶやきの全日付を集約 ===== */
   function loadTwAll(catId){
     const merged={};
     NS_CAND.forEach(ns=>{
@@ -85,13 +92,50 @@
         Object.assign(merged,obj);
       }catch{}
     });
-    return merged;
+    return merged; // { ymd: {text,...}, ... }
   }
-  function loadSnaps(catId){
-    try{ return JSON.parse(localStorage.getItem(SNAP_PREFIX+catId)||'[]'); }catch{ return []; }
+
+  /* ===== スナップ（新形式＋旧形式フォールバック） ===== */
+  function loadSnapsCalendar(catId){
+    try{ return JSON.parse(localStorage.getItem(KEY_CAL_PREFIX+catId)||'{}'); }catch{ return {}; }
+  }
+  function loadSnapsToday(catId){
+    try{ return JSON.parse(localStorage.getItem(KEY_TODAY_PREFIX+catId)||'null'); }catch{ return null; }
+  }
+  function loadSnapsLegacy(catId){
+    try{ return JSON.parse(localStorage.getItem(KEY_LEGACY+catId)||'[]'); }catch{ return []; }
+  }
+
+  // 指定日のスナップ配列を取得（存在すれば new→today→legacy の順で）
+  function getSnapsByDate(catId, ymd){
+    const cal = loadSnapsCalendar(catId);
+    if (Array.isArray(cal[ymd]) && cal[ymd].length) return cal[ymd];
+
+    const tb = loadSnapsToday(catId);
+    if (tb && tb.date === ymd && Array.isArray(tb.items) && tb.items.length) return tb.items;
+
+    const legacy = loadSnapsLegacy(catId).filter(it => (it.ymd || toYMD(new Date(it.ts||0))) === ymd);
+    return legacy;
+  }
+
+  // 月表示用に「どの日にスナップがあるか」を集合で作る
+  function buildSnapDateSet(catId){
+    const set = new Set();
+    const cal = loadSnapsCalendar(catId);
+    Object.keys(cal||{}).forEach(ymd => { if (Array.isArray(cal[ymd]) && cal[ymd].length) set.add(ymd); });
+
+    const tb = loadSnapsToday(catId);
+    if (tb && tb.date && Array.isArray(tb.items) && tb.items.length) set.add(tb.date);
+
+    // 旧形式も拾う（互換）
+    const legacy = loadSnapsLegacy(catId);
+    legacy.forEach(it => { const d = it.ymd || toYMD(new Date(it.ts||0)); if (d) set.add(d); });
+
+    return set;
   }
 
   let cur=new Date(today.getFullYear(),today.getMonth(),1);
+
   function renderHead(){
     const h=document.getElementById('cal-head'); h.innerHTML='';
     function btn(t,fn){const b=document.createElement('button'); b.className='btn'; b.textContent=t; b.onclick=fn; return b;}
@@ -113,13 +157,12 @@
     const start=first.getDay();
     const rows=Math.ceil((start+last.getDate())/7);
 
-    const twSet = loadTwAll(catId);
-    const snaps = loadSnaps(catId);
-    const snapSet=new Set(snaps.map(it=> it.ymd || toYMD(new Date(it.ts||0))));
+    const twSet = loadTwAll(catId);                // { ymd: {text,...} }
+    const snapDateSet = buildSnapDateSet(catId);   // Set<ymd>
 
     function isHit(day){
       const ymd=`${cur.getFullYear()}-${pad2(cur.getMonth()+1)}-${pad2(day)}`;
-      return !!twSet[ymd] || snapSet.has(ymd);
+      return !!twSet[ymd] || snapDateSet.has(ymd);
     }
 
     let d=1;
@@ -136,7 +179,7 @@
           if(toYMD(cd)===toYMD(today)) td.classList.add('today');
           if(isHit(d)) td.classList.add('hit');
           td.style.cursor='pointer';
-          td.onclick=()=>{ if(cd>today)return; showDetail(cd, twSet, snaps); };
+          td.onclick=()=>{ if(cd>today)return; showDetail(cd, twSet); };
           d++;
         }
         tr.appendChild(td);
@@ -144,10 +187,10 @@
       tbody.appendChild(tr);
     }
     const init=(cur.getFullYear()===today.getFullYear()&&cur.getMonth()===today.getMonth())?today:new Date(cur.getFullYear(),cur.getMonth(),last.getDate());
-    showDetail(init, twSet, snaps);
+    showDetail(init, twSet);
   }
 
-  function showDetail(d, twSet, snaps){
+  function showDetail(d, twSet){
     document.getElementById('detail-title').textContent=`${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日（${yobi(d.getDay())}）`;
     const ymd=toYMD(d);
     const areaTw=document.getElementById('detail-tw');
@@ -158,9 +201,14 @@
     if(tw && tw.text){ const p=document.createElement('p'); p.textContent=tw.text; p.style.margin='0'; areaTw.appendChild(p); }
     else{ const p=document.createElement('p'); p.className='legend'; p.style.margin='0'; p.textContent='この日のつぶやきは未登録です。'; areaTw.appendChild(p); }
 
-    const list=snaps.filter(it=> (it.ymd||toYMD(new Date(it.ts||0)))===ymd);
-    if(list.length){
-      list.forEach(it=>{ const box=document.createElement('div'); box.className='snap-thumb'; const img=new Image(); img.src=it.data||it.base||''; box.appendChild(img); areaSn.appendChild(box); });
+    const list=getSnapsByDate(catId, ymd);
+    if(list && list.length){
+      list.forEach(it=>{
+        const src = it.data || it.base || '';
+        const box=document.createElement('div'); box.className='snap-thumb';
+        const img=new Image(); img.src=src; img.alt='snap';
+        box.appendChild(img); areaSn.appendChild(box);
+      });
     }else{
       const p=document.createElement('p'); p.className='legend'; p.style.margin='0'; p.textContent='この日のスナップは未登録です。'; areaSn.appendChild(p);
     }

@@ -45,6 +45,127 @@
     localStorage.setItem(key, JSON.stringify(val));
   }
 
+  /* === 追加：安全保存（容量超過のとき段階的に縮小・間引きして再試行） === */
+  function trySaveWithRelief(key, value, options) {
+    // options: { catId, isCalendar, isToday, shrinkHook }
+    try {
+      saveJSON(key, value);
+      return true;
+    } catch (e) {
+      if (!(e && (e.name === 'QuotaExceededError' || String(e).includes('QuotaExceededError')))) {
+        console.warn('[snaps] save failed:', e);
+        return false;
+      }
+    }
+
+    const opt = options || {};
+    const catId = opt.catId || '';
+
+    // 1) カレンダーの間引き（最新優先）
+    if (opt.isCalendar && catId) {
+      let cal = value || {};
+      const keys = Object.keys(cal).sort(); // 昇順（古い→新しい）
+      const limits = [90, 60, 30, 14];
+      for (let li = 0; li < limits.length; li++) {
+        const keep = limits[li];
+        if (keys.length > keep) {
+          const newer = keys.slice(-keep);
+          const trimmed = {};
+          newer.forEach(k => trimmed[k] = cal[k]);
+          try {
+            saveJSON(KEY_CAL_PREFIX + catId, trimmed);
+            return true;
+          } catch (e2) {
+            if (!(e2 && (e2.name === 'QuotaExceededError' || String(e2).includes('QuotaExceededError')))) break;
+            cal = trimmed; // 次のループでさらに削る
+          }
+        }
+      }
+    }
+
+    // 2) 画像の再圧縮（当日ボックス or カレンダーの当日配列）
+    const shrinkTargets = [];
+    if (opt.isToday && value && Array.isArray(value.items)) shrinkTargets.push({ arr: value.items });
+    if (opt.isCalendar && value) {
+      const today = ymdJST();
+      if (Array.isArray(value[today])) shrinkTargets.push({ arr: value[today] });
+    }
+
+    const steps = [
+      { side: 960, q: 0.82 },
+      { side: 800, q: 0.78 }
+    ];
+
+    for (let s = 0; s < steps.length; s++) {
+      const { side, q } = steps[s];
+      let changed = false;
+      for (const t of shrinkTargets) {
+        for (let i = 0; i < t.arr.length; i++) {
+          const it = t.arr[i];
+          if (!it || !it.data || typeof it.data !== 'string') continue;
+          const smaller = recompressDataURL(it.data, side, q);
+          if (smaller && smaller.length < it.data.length) {
+            it.data = smaller;
+            changed = true;
+          }
+        }
+      }
+      if (changed) {
+        try {
+          saveJSON(key, value);
+          return true;
+        } catch (e3) {
+          if (!(e3 && (e3.name === 'QuotaExceededError' || String(e3).includes('QuotaExceededError')))) {
+            console.warn('[snaps] save failed after shrink:', e3);
+            break;
+          }
+        }
+      }
+    }
+
+    // 3) 最終手段：当日の items をメタのみ（data を空）にして保存
+    for (const t of shrinkTargets) {
+      for (let i = 0; i < t.arr.length; i++) {
+        const it = t.arr[i];
+        if (it && it.data) { it.data = ''; }
+      }
+    }
+    try {
+      saveJSON(key, value);
+      console.warn('[snaps] saved with metadata-only fallback');
+      return true;
+    } catch (e4) {
+      console.warn('[snaps] final save failed:', e4);
+      return false;
+    }
+  }
+
+  // DataURL をキャンバス経由で再圧縮・縮小
+  function recompressDataURL(dataURL, maxSide, quality) {
+    try {
+      const img = document.createElement('img');
+      return syncReencode(img, dataURL, maxSide, quality);
+    } catch { return null; }
+  }
+  function syncReencode(img, src, maxSide, quality) {
+    // 同期的に扱うために警戒（実体は即時 onload 実行されない限り同期にはならない）
+    // ここでは try/catch 内で失敗時 null を返す運用
+    let out = null;
+    img.onload = function() {
+      try {
+        const s = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight));
+        const w = Math.max(1, Math.round(img.naturalWidth * s));
+        const h = Math.max(1, Math.round(img.naturalHeight * s));
+        const c = document.createElement('canvas'); c.width = w; c.height = h;
+        c.getContext('2d').drawImage(img, 0, 0, w, h);
+        out = c.toDataURL('image/jpeg', quality);
+      } catch { out = null; }
+    };
+    img.onerror = function(){ out = null; };
+    img.src = src;
+    return out;
+  }
+
   /* ====== 旧データ → 新形式へ移行（必要時のみ） ====== */
   function migrateLegacyIfNeeded(catId) {
     const legacyArr = loadJSON(LEGACY_KEY_PREFIX + catId, null);
@@ -61,15 +182,28 @@
       ...x,
       ts: x?.ts || Date.now()
     })));
-    saveJSON(calKey, calendar);
 
-    saveJSON(todayKey, { date: today, items: calendar[today] });
+    // カレンダー保存（容量対策付き）
+    trySaveWithRelief(calKey, calendar, { catId, isCalendar: true });
 
-    // 旧キーは消さない（カレンダー互換のため残す）
-const flat=[];
-Object.values(calendar).forEach(arr=>{ if(Array.isArray(arr)) arr.forEach(x=>flat.push(x)); });
-saveJSON(LEGACY_KEY_PREFIX + catId, flat);
+    // TODAY を同期（容量対策付き）
+    const todayBox = { date: today, items: calendar[today] };
+    trySaveWithRelief(todayKey, todayBox, { catId, isToday: true });
 
+    // 旧キーは「メタデータのみ」でミラー（画像 data は持たない）
+    const flat = [];
+    Object.values(calendar).forEach(arr => {
+      if (Array.isArray(arr)) arr.forEach(x => {
+        const m = { ts: x?.ts || Date.now(), caption: x?.caption || '', captionFontKey: x?.captionFontKey || 'system' };
+        flat.push(m);
+      });
+    });
+    try {
+      saveJSON(LEGACY_KEY_PREFIX + catId, flat);
+    } catch (e) {
+      // ここは互換用なので失敗してもアプリ本体を止めない
+      console.warn('[snaps] legacy mirror save failed:', e);
+    }
   }
 
   /* ====== 新形式（カレンダー／当日） ====== */
@@ -77,13 +211,18 @@ saveJSON(LEGACY_KEY_PREFIX + catId, flat);
     return loadJSON(KEY_CAL_PREFIX + catId, {}); // { ymd: Snap[] }
   }
   function saveCalendar(catId, calendarObj) {
-    saveJSON(KEY_CAL_PREFIX + catId, calendarObj);
+    // 容量対策付き保存
+    if (!trySaveWithRelief(KEY_CAL_PREFIX + catId, calendarObj, { catId, isCalendar: true })) {
+      console.warn('[snaps] saveCalendar failed (even after relief)');
+    }
   }
   function loadTodayBox(catId) {
     return loadJSON(KEY_TODAY_PREFIX + catId, null); // { date, items }
   }
   function saveTodayBox(catId, todayBox) {
-    saveJSON(KEY_TODAY_PREFIX + catId, todayBox);
+    if (!trySaveWithRelief(KEY_TODAY_PREFIX + catId, todayBox, { catId, isToday: true })) {
+      console.warn('[snaps] saveTodayBox failed (even after relief)');
+    }
   }
   function ensureTodayMirror(catId) {
     const today = ymdJST();
@@ -112,11 +251,14 @@ saveJSON(LEGACY_KEY_PREFIX + catId, flat);
     const calendar = loadCalendar(catId);
     calendar[today] = todayArr.slice();
     saveCalendar(catId, calendar);
-    // 旧キー（レガシー）も常にミラー更新（カレンダー互換）
-const flat=[];
-Object.values(calendar).forEach(arr=>{ if(Array.isArray(arr)) arr.forEach(x=>flat.push(x)); });
-saveJSON(LEGACY_KEY_PREFIX + catId, flat);
-
+    // 旧キー（レガシー）はメタのみでミラー（data は持たない）
+    try {
+      const flat = [];
+      Object.values(calendar).forEach(arr => { if (Array.isArray(arr)) arr.forEach(x => flat.push({ ts: x?.ts || Date.now(), caption: x?.caption || '', captionFontKey: x?.captionFontKey || 'system' })); });
+      saveJSON(LEGACY_KEY_PREFIX + catId, flat);
+    } catch (e) {
+      console.warn('[snaps] legacy mirror update failed:', e);
+    }
   }
 
   /* ====== 画像ユーティリティ ====== */
@@ -130,7 +272,8 @@ saveJSON(LEGACY_KEY_PREFIX + catId, flat);
         const c = document.createElement("canvas"); c.width = w; c.height = h;
         c.getContext("2d").drawImage(img, 0, 0, w, h);
         URL.revokeObjectURL(url);
-        resolve(c.toDataURL("image/jpeg", 0.92));
+        // 品質を少し下げて容量節約
+        resolve(c.toDataURL("image/jpeg", 0.9));
       };
       img.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
       img.src = url;

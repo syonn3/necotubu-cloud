@@ -31,6 +31,9 @@
     .btn.primary{background:var(--c-primary);color:#fff;border-color:var(--c-primary)}
     .btn.ghost{background:transparent;color:var(--c-ink)}
     .small-muted{font-size:13px;color:var(--c-muted)}
+    /* saved highlight and disabled look */
+    .btn.saved{background:#ffe38a;color:#333;border-color:#ffe38a}
+    .btn:disabled{cursor:not-allowed;opacity:1}
   </style>
 </head>
 <body>
@@ -66,7 +69,6 @@
         </select>
       </div>
 
-      <!-- ▼ 全消去ボタンだけ右端へ -->
       <div class="row space-between" style="margin-top:12px">
         <div class="row" style="gap:8px">
           <button id="btn-save" class="btn primary">保存する</button>
@@ -81,80 +83,113 @@
   <script src="js/api.js"></script>
   <script>
     (function(){
-      const NS = (window.APP_CONFIG && window.APP_CONFIG.STORAGE_NS) || "necotubu_v1";
-      const KEY_NOTE    = NS + ":home:note";
-      const KEY_GENDER  = NS + ":home:gender";
-      const KEY_WEATHER = NS + ":home:weather";
+      var NS = (window.APP_CONFIG && window.APP_CONFIG.STORAGE_NS) || "necotubu_v1";
+      var KEY_NOTE    = NS + ":home:note";
+      var KEY_GENDER  = NS + ":home:gender";
+      var KEY_WEATHER = NS + ":home:weather";
 
-      const noteEl   = document.getElementById('note');
-      const saveBtn  = document.getElementById('btn-save');
-      const clearBtn = document.getElementById('btn-clear');
-      const weatherEl= document.getElementById('weather');
-      const todayEl  = document.getElementById('todayLabel');
+      var noteEl    = document.getElementById('note');
+      var saveBtn   = document.getElementById('btn-save');
+      var clearBtn  = document.getElementById('btn-clear');
+      var weatherEl = document.getElementById('weather');
+      var todayEl   = document.getElementById('todayLabel');
 
       function todayJST(){
-        const now = new Date();
-        const jst = new Date(now.toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' }));
-        const w = '日月火水木金土'[jst.getDay()];
-        return `${jst.getFullYear()}年${jst.getMonth()+1}月${jst.getDate()}日（${w}）`;
+        var now = new Date();
+        var jst = new Date(now.toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' }));
+        var w = '日月火水木金土'.charAt(jst.getDay());
+        return jst.getFullYear() + '年' + (jst.getMonth()+1) + '月' + jst.getDate() + '日（' + w + '）';
       }
 
-      document.addEventListener('DOMContentLoaded', ()=>{
+      /* button state helpers */
+      function markSaved(){
+        saveBtn.disabled = true;
+        saveBtn.classList.add('saved');
+        saveBtn.classList.add('primary');
+        saveBtn.textContent = '保存済み';
+      }
+      function markDirty(){
+        saveBtn.disabled = false;
+        saveBtn.classList.remove('saved');
+        saveBtn.textContent = '保存する';
+      }
+      function attachDirtyListeners(){
+        noteEl.addEventListener('input', markDirty);
+        weatherEl.addEventListener('change', markDirty);
+        var radios = document.querySelectorAll('input[name="owner-gender"]');
+        for(var i=0;i<radios.length;i++){
+          radios[i].addEventListener('change', markDirty);
+        }
+      }
+
+      document.addEventListener('DOMContentLoaded', function(){
         todayEl.textContent = todayJST();
         try{
-          const note = localStorage.getItem(KEY_NOTE);
+          var note = localStorage.getItem(KEY_NOTE);
           if(note!==null) noteEl.value = note;
-          const gender = localStorage.getItem(KEY_GENDER);
+
+          var gender = localStorage.getItem(KEY_GENDER);
           if(gender){
-            const el = document.querySelector('input[name="owner-gender"][value="'+gender+'"]');
+            var el = document.querySelector('input[name="owner-gender"][value="' + gender + '"]');
             if(el) el.checked = true;
           }
-          const w = localStorage.getItem(KEY_WEATHER);
-          if(w && weatherEl.querySelector('option[value="'+w+'"]')){
+
+          var w = localStorage.getItem(KEY_WEATHER);
+          if(w && weatherEl.querySelector('option[value="' + w + '"]')){
             weatherEl.value = w;
           }
         }catch(e){}
+
+        /* initial state: treated as saved */
+        markSaved();
+        attachDirtyListeners();
       });
 
-      saveBtn.addEventListener('click', ()=>{
+      /* save without confirm */
+      saveBtn.addEventListener('click', function(){
+        if(saveBtn.disabled) return;
         try{
           localStorage.setItem(KEY_NOTE, noteEl.value || "");
-          const sel = document.querySelector('input[name="owner-gender"]:checked');
+          var sel = document.querySelector('input[name="owner-gender"]:checked');
           localStorage.setItem(KEY_GENDER, sel ? sel.value : "");
           localStorage.setItem(KEY_WEATHER, weatherEl.value || "sunny");
-          alert('保存しました。');
-        }catch(e){ alert('保存に失敗しました。'); }
+          markSaved();
+        }catch(e){
+          alert('保存に失敗しました。');
+        }
       });
 
-      // —— 全消去：ネコつぶのデータだけを一括削除（OK=消す / キャンセル=消さない）
-      clearBtn.addEventListener('click', ()=>{
-        const msg = 'このままOKを押すと、これまでのネコつぶデータはすべて消去されます。\\n' +
-                    '（OK＝消す / キャンセル＝消さない）';
+      /* delete all (with confirm) */
+      clearBtn.addEventListener('click', function(){
+        var msg = 'このままOKを押すと、これまでのネコつぶデータはすべて消去されます。\n' +
+                  '（OK＝消す / キャンセル＝消さない）';
         if(!confirm(msg)) return;
 
         try{
-          // まず、このページのキー
           localStorage.removeItem(KEY_NOTE);
           localStorage.removeItem(KEY_GENDER);
           localStorage.removeItem(KEY_WEATHER);
 
-          // すべてのネコ・すべての日のデータを対象（ネコつぶ専用キーのみ）
-          const SNAP_PREFIXES = [
-            'necotubu_snaps:',             // 旧（配列）
-            'necotubu_snaps_today:',       // 当日
-            'necotubu_snaps_calendar:'     // 全履歴
+          var SNAP_PREFIXES = [
+            'necotubu_snaps:',
+            'necotubu_snaps_today:',
+            'necotubu_snaps_calendar:'
           ];
-          const CATS_KEY = 'necotubu_cats';
+          var CATS_KEY = 'necotubu_cats';
 
-          const toDelete = [];
-          for(let i=0;i<localStorage.length;i++){
-            const k = localStorage.key(i);
+          var toDelete = [];
+          for(var i=0;i<localStorage.length;i++){
+            var k = localStorage.key(i);
             if(!k) continue;
             if(k===CATS_KEY){ toDelete.push(k); continue; }
-            if(k.startsWith(NS + ':')){ toDelete.push(k); continue; }
-            if(SNAP_PREFIXES.some(p => k.startsWith(p))){ toDelete.push(k); continue; }
+            if(k.indexOf(NS + ':')===0){ toDelete.push(k); continue; }
+            for(var j=0;j<SNAP_PREFIXES.length;j++){
+              if(k.indexOf(SNAP_PREFIXES[j])===0){ toDelete.push(k); break; }
+            }
           }
-          toDelete.forEach(k => localStorage.removeItem(k));
+          for(var t=0;t<toDelete.length;t++){
+            localStorage.removeItem(toDelete[t]);
+          }
 
           alert('全データを消去しました。ページを再読み込みします。');
           location.reload();

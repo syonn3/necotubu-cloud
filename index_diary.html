@@ -57,6 +57,7 @@
           <div class="avatar" id="cat-avatar">？</div>
           <div class="profile">
             <p id="cat-name" style="font-weight:700;font-size:18px">ネコ</p>
+            <p id="cat-gender" class="hint">性別: -</p>
             <p id="cat-age" class="hint">年齢: -</p>
             <p id="cat-breed" class="hint">猫種: -</p>
             <p id="cat-personality" class="hint">性格: -</p>
@@ -268,7 +269,7 @@
               return text;
             }catch(e){
               lastErr=e;
-              await new Promise(r=> setTimeout(r, 250*(i+1))); // 短いバックオフ
+              await new Promise(r=> setTimeout(r, 250*(i+1)));
             }
           }
           throw lastErr || new Error('Geminiに到達できませんでした');
@@ -285,18 +286,18 @@
           const negativeWords = ['しんど','疲れ','つかれ','嫌','やめたい','むり','つら'];
           return [
             'あなたは猫の詩的つぶやきを書くアシスタントです。',
-            `【ねこ】名前:${name} / 性格:${personality||'不明'} / テリトリー:${territory||'-'}`,
-            `【推定年齢】${ageYears==null?'不明':(ageYears.toFixed(2)+'歳')}`,
-            `【天気】${weatherKey||'-'} / 【季節・時間ヒント】${hints.join('、')||'なし'} / 【イベント】${ev||'なし'}`,
-            `【主人のひとこと】${(note||'(なし)').slice(0,120)} / 呼び方例:${ownerLabel}`,
+            '【ねこ】名前:'+name+' / 性格:'+(personality||'不明')+' / テリトリー:'+(territory||'-'),
+            '【推定年齢】'+(ageYears==null?'不明':(ageYears.toFixed(2)+'歳')),
+            '【天気】'+(weatherKey||'-')+' / 【季節・時間ヒント】'+(hints.join('、')||'なし')+' / 【イベント】'+(ev||'なし'),
+            '【主人のひとこと】'+(String(note||'(なし)').slice(0,120))+' / 呼び方例:'+ownerLabel,
             'ルール：',
             '- 1歳までは性格関係なく赤ちゃん言葉でひらがな中心。1〜2歳は段階的に性格寄り＆漢字を少し増やす。',
             '- 「にゃ」「にゃん」などは禁止。具体的な年月日・曜日・時刻も禁止（抽象表現のみ）。',
-            `- 一人称は常に自分の名前「${name}」。`,
+            '- 一人称は常に自分の名前「'+name+'」。',
             '- 季節・時間帯・天気のニュアンスを必ず入れる（明るい夕暮れ、朝焼け、日差し、雪が綿菓子みたい など）。',
-            `- 主人のひとことは3回に1回ていど優しく解釈。ネガティブ（${negativeWords.join('、')}）があれば必ず心配する。`,
+            '- 主人のひとことは3回に1回ていど優しく解釈。ネガティブ（'+negativeWords.join('、')+'）があれば必ず心配する。',
             '- 事実不明の体験談は書かない。過去や他の猫と似すぎる表現は避ける。',
-            `出力：1段落のみ。最大${TWEET_MAX}文字程度。句読点は自然に。`
+            '出力：1段落のみ。最大'+TWEET_MAX+'文字程度。句読点は自然に。'
           ].join('\n');
         }
 
@@ -307,10 +308,9 @@
           function clearError(){ errBox.style.display='none'; errBox.textContent=''; }
 
           const catId = qs().get('catId') || qs().get('catid');
-// カレンダーボタンに catId を付ける
-const calLink = document.querySelector('a[href="index_calendar.html"]');
-if (calLink && catId) calLink.href = 'index_calendar.html?catId=' + encodeURIComponent(catId);
-
+          // カレンダーボタンに catId を付ける
+          const calLink = document.querySelector('a[href="index_calendar.html"]');
+          if (calLink && catId) calLink.href = 'index_calendar.html?catId=' + encodeURIComponent(catId);
 
           const cats=JSON.parse(localStorage.getItem(CATS_KEY)||'[]');
           const cat=cats.find(c=>c.id===catId);
@@ -332,6 +332,11 @@ if (calLink && catId) calLink.href = 'index_calendar.html?catId=' + encodeURICom
           const av=document.getElementById('cat-avatar');
           document.getElementById('cat-name').textContent=cat.name||'ネコ';
           document.getElementById('tw-title').textContent=(cat.name||'ネコ')+'のつぶやき';
+
+          const genderLabel = { male: "おとこの子", female: "おんなの子", other: "わからない" };
+document.getElementById('cat-gender').textContent =
+  "性別: " + (genderLabel[cat.gender] || "わからない");
+
           if(cat.avatar){
             av.innerHTML=''; const im=new Image();
             im.src=cat.avatar; im.alt='avatar'; im.style.width='100%'; im.style.height='100%'; im.style.objectFit='cover';
@@ -343,10 +348,10 @@ if (calLink && catId) calLink.href = 'index_calendar.html?catId=' + encodeURICom
           if(ageYears!=null){
             if(bday){
               if(ageYears<2){ ageEl.textContent='年齢: '+Math.floor(ageYears*12)+'か月'; }
-              else{ const y=Math.floor(ageYears), m=Math.floor((ageYears-y)*12); ageEl.textContent=`年齢: ${y}歳 ${m}か月`; }
+              else{ const y=Math.floor(ageYears), m=Math.floor((ageYears-y)*12); ageEl.textContent='年齢: '+y+'歳 '+m+'か月'; }
             }else{
               const months=Math.max(1, Math.floor((ageYears||0)*12));
-              ageEl.textContent=`年齢: 約${months}か月（推定）`;
+              ageEl.textContent='年齢: 約'+months+'か月（推定）';
             }
           } else { ageEl.textContent='年齢: 不明'; }
           document.getElementById('cat-breed').textContent='猫種: '+(cat.breed||'-');
@@ -357,10 +362,22 @@ if (calLink && catId) calLink.href = 'index_calendar.html?catId=' + encodeURICom
 
           const dstr=localStorage.getItem(HOME_DATE)||''; const weath=(localStorage.getItem(HOME_WEATH)||'').toLowerCase();
           let disp=dstr;
-          if(!disp){ disp = `${now.getFullYear()}年${now.getMonth()+1}月${now.getDate()}日（${yobi(now.getDay())}）`; }
-          document.getElementById('tw-date').textContent=`${disp} ${weatherEmoji(weath)}`;
+          if(!disp){ disp = now.getFullYear()+'年'+(now.getMonth()+1)+'月'+now.getDate()+'日（'+yobi(now.getDay())+'）'; }
+          document.getElementById('tw-date').textContent=disp+' '+weatherEmoji(weath);
 
-          const snaps = window.Snaps.init({ catId: cat.id, fileInputId: 'snap-file', gridId: 'snap-grid', maxSide: 1200 });
+          /* ====== Snaps 初期化（フェイルセーフ） ====== */
+          let snaps;
+          try{
+            if (window.Snaps && typeof window.Snaps.init === 'function') {
+              snaps = window.Snaps.init({ catId: cat.id, fileInputId: 'snap-file', gridId: 'snap-grid', maxSide: 1200 });
+            } else {
+              throw new Error('snaps_not_loaded');
+            }
+          }catch(e){
+            console.warn('Snaps init failed:', e && e.message ? e.message : e);
+            snaps = { hasSnaps: ()=>false, onChange: ()=>{} };
+            showError('写真機能の読み込みに失敗しました。古い写真が多い場合は容量がいっぱいの可能性があります。Ctrl+F5 で再読み込み、直らなければ古い写真を少し整理してください。');
+          }
 
           const btnFB=document.getElementById('btn-fb');
           const btnIG=document.getElementById('btn-ig');
@@ -409,7 +426,7 @@ if (calLink && catId) calLink.href = 'index_calendar.html?catId=' + encodeURICom
 
           async function generate({forceRegen=false}={}){
             const now2=todayJST();
-            const ymd = `${now2.getFullYear()}-${String(now2.getMonth()+1).padStart(2,'0')}-${String(now2.getDate()).padStart(2,'0')}`;
+            const ymd = now2.getFullYear()+'-'+String(now2.getMonth()+1).padStart(2,'0')+'-'+String(now2.getDate()).padStart(2,'0');
             const prevSaved = loadTw(cat.id, ymd);
 
             if(prevSaved && !forceRegen){
@@ -427,7 +444,7 @@ if (calLink && catId) calLink.href = 'index_calendar.html?catId=' + encodeURICom
             try{
               let finalText='';
               for(let i=0;i<4;i++){
-                const add = i? `\n【追加条件】前回までと似た言い回しを避け、新しい語彙で書き直してください（強度:${i}）。` : '';
+                const add = i? '\n【追加条件】前回までと似た言い回しを避け、新しい語彙で書き直してください（強度:'+i+'）。' : '';
                 let draft = await callGeminiStrict(basePrompt + add, {maxTokens:240, retries:4});
                 draft = sanitize(String(draft||''));
                 if(!/[。！？]$/.test(draft)) draft+='。';
@@ -445,7 +462,7 @@ if (calLink && catId) calLink.href = 'index_calendar.html?catId=' + encodeURICom
               saveAndShow(ymd, finalText);
 
             }catch(e){
-              showErr('AI生成に失敗しました。Geminiの設定やネットワークをご確認ください。' + (e && e.message ? `（詳細: ${e.message}）` : ''));
+              showErr('AI生成に失敗しました。Geminiの設定やネットワークをご確認ください。' + (e && e.message ? '（詳細: ' + e.message + '）' : ''));
             }
           }
 
