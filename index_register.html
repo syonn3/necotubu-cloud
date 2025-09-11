@@ -49,6 +49,14 @@
       <label>名前</label>
       <input id="f-name" type="text" placeholder="ネコの名前">
 
+      <!-- ▼ 追加：性別（名前の下／生年月日の上） -->
+      <label>性別</label>
+      <div class="row">
+        <label><input type="radio" name="f-gender" value="male"> おとこの子</label>
+        <label><input type="radio" name="f-gender" value="female"> おんなの子</label>
+        <label><input type="radio" name="f-gender" value="unknown"> わからない</label>
+      </div>
+
       <label>生年月日</label>
       <div class="row">
         <select id="birth-year" style="flex:1"></select>
@@ -155,6 +163,13 @@
             if(cat.birthYear!=null) document.getElementById('birth-year').value=String(cat.birthYear);
             if(cat.birthMonth!=null) document.getElementById('birth-month').value=String(cat.birthMonth);
             if(cat.birthDay!=null) document.getElementById('birth-day').value=String(cat.birthDay);
+
+            // ▼ 追加：既存データの性別を反映（無ければ未選択のまま）
+            if(cat.gender){
+              const gEl=document.querySelector('input[name="f-gender"][value="'+cat.gender+'"]');
+              if(gEl) gEl.checked=true;
+            }
+
             if(cat.avatar){
               avatarData=cat.avatar;
               const pv=document.getElementById('avatar-preview'); pv.innerHTML='';
@@ -163,6 +178,10 @@
               pv.appendChild(im);
             }
           }
+        } else {
+          // 新規時の既定：性別は「わからない」
+          const gEl=document.querySelector('input[name="f-gender"][value="unknown"]');
+          if(gEl) gEl.checked=true;
         }
       });
 
@@ -184,9 +203,14 @@
         const m=document.getElementById('birth-month').value;
         const d=document.getElementById('birth-day').value;
 
+        // ▼ 追加：性別の取得（未選択は "unknown"）
+        const gSel=document.querySelector('input[name="f-gender"]:checked');
+        const gender = gSel ? gSel.value : 'unknown';
+
         const cat={
           id: editingId || ('cat_'+Date.now()),
           name,
+          gender, // ← 追加項目
           birthYear:(y==='unknown'?null:Number(y)),
           birthMonth:(m==='unknown'?null:Number(m)),
           birthDay:(d==='unknown'?null:Number(d)),

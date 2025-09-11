@@ -216,7 +216,7 @@
           }
           if(hour>=5 && hour<=7 && month>=3 && month<=5) hints.push('朝焼けがきれい');
           if(hour>=11&&hour<=14){
-            if(month>=7&&月<=8) hints.push('日差しが強い');
+            if(month>=7 && month<=8) hints.push('日差しが強い');
             if(month>=12||month<=2) hints.push('お昼でも空気がひやり');
           }
           if(weatherKey==='sunny')  hints.push('日差しがあたたかい');
@@ -306,7 +306,12 @@
           function showError(msg){ errBox.textContent=msg; errBox.style.display='block'; }
           function clearError(){ errBox.style.display='none'; errBox.textContent=''; }
 
-          const catId=qs().get('catId')||qs().get('catid');
+          const catId = qs().get('catId') || qs().get('catid');
+// カレンダーボタンに catId を付ける
+const calLink = document.querySelector('a[href="index_calendar.html"]');
+if (calLink && catId) calLink.href = 'index_calendar.html?catId=' + encodeURIComponent(catId);
+
+
           const cats=JSON.parse(localStorage.getItem(CATS_KEY)||'[]');
           const cat=cats.find(c=>c.id===catId);
           if(!cat){ alert('ネコ情報が見つかりません'); location.href='index_cats.html'; return; }

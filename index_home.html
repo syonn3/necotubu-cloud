@@ -66,13 +66,13 @@
         </select>
       </div>
 
-      <!-- ▼ 消去ボタンだけ右端へ -->
+      <!-- ▼ 全消去ボタンだけ右端へ -->
       <div class="row space-between" style="margin-top:12px">
         <div class="row" style="gap:8px">
           <button id="btn-save" class="btn primary">保存する</button>
           <a href="index_cats.html#cats" class="btn">あなたのネコ</a>
         </div>
-        <button id="btn-clear" class="btn ghost">消去</button>
+        <button id="btn-clear" class="btn ghost">全消去</button>
       </div>
     </section>
   </main>
@@ -126,17 +126,41 @@
         }catch(e){ alert('保存に失敗しました。'); }
       });
 
+      // —— 全消去：ネコつぶのデータだけを一括削除（OK=消す / キャンセル=消さない）
       clearBtn.addEventListener('click', ()=>{
-        if(!confirm('入力内容を消去します。よろしいですか？')) return;
-        noteEl.value = "";
-        const checked = document.querySelector('input[name="owner-gender"]:checked');
-        if(checked) checked.checked = false;
-        weatherEl.value = "sunny";
+        const msg = 'このままOKを押すと、これまでのネコつぶデータはすべて消去されます。\\n' +
+                    '（OK＝消す / キャンセル＝消さない）';
+        if(!confirm(msg)) return;
+
         try{
+          // まず、このページのキー
           localStorage.removeItem(KEY_NOTE);
           localStorage.removeItem(KEY_GENDER);
           localStorage.removeItem(KEY_WEATHER);
-        }catch(e){}
+
+          // すべてのネコ・すべての日のデータを対象（ネコつぶ専用キーのみ）
+          const SNAP_PREFIXES = [
+            'necotubu_snaps:',             // 旧（配列）
+            'necotubu_snaps_today:',       // 当日
+            'necotubu_snaps_calendar:'     // 全履歴
+          ];
+          const CATS_KEY = 'necotubu_cats';
+
+          const toDelete = [];
+          for(let i=0;i<localStorage.length;i++){
+            const k = localStorage.key(i);
+            if(!k) continue;
+            if(k===CATS_KEY){ toDelete.push(k); continue; }
+            if(k.startsWith(NS + ':')){ toDelete.push(k); continue; }
+            if(SNAP_PREFIXES.some(p => k.startsWith(p))){ toDelete.push(k); continue; }
+          }
+          toDelete.forEach(k => localStorage.removeItem(k));
+
+          alert('全データを消去しました。ページを再読み込みします。');
+          location.reload();
+        }catch(e){
+          alert('消去に失敗しました。必要な権限やブラウザ設定をご確認ください。');
+        }
       });
     })();
   </script>
