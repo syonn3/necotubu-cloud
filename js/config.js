@@ -12,7 +12,7 @@
   const ENVS = {
     dev: {
       NAME: "dev",
-      API_BASE_URL: GAS_PROXY_URL,
+      API_BASE_URL: https://script.google.com/macros/s/AKfycbyeouSzRziHF0Pu-UU4oQR7vQ7lyMozBkcw3D1bWKvMkqTxMY8oUE9jNvyOuEZmyMBW/exec,
       TIMEOUT_MS: 15000,
       FEATURE_FLAGS: { diaryAutoSave: true },
       STORAGE_NS: UNIFIED_NS,
