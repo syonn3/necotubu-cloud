@@ -1,203 +1,56 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Neco-Tubu ネコのつぶやき</title>
-          <!-- test2 --><!-- 練習で追加 --><!-- commit test -->
-
   <style>
-    :root{
-      --c-bg:#1C1A17; --c-paper:#2E2B28; --c-ink:#F5F1E6; --c-muted:#CBAE82;
-      --c-primary:#FF7F32; --c-accent:#A3C586; --c-line:#4A453F;
-      --shadow:0 3px 12px rgba(0,0,0,.4); --radius:16px;
+    body {
+      font-family: sans-serif;
+      background: #fff;
+      padding: 20px;
+      text-align: center;
     }
-    *{box-sizing:border-box}
-    html,body{margin:0;padding:0;background:var(--c-bg);color:var(--c-ink);font-family:-apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Noto Sans JP","Yu Gothic UI","Meiryo",sans-serif;line-height:1.6}
-    a{color:var(--c-primary);text-decoration:none}
-    a:focus{outline:2px solid var(--c-accent);outline-offset:2px}
-    header.app-header{position:sticky;top:0;z-index:20;background:var(--c-paper);border-bottom:1px solid var(--c-line);box-shadow:var(--shadow)}
-    header .inner{max-width:720px;margin:0 auto;padding:10px 12px;display:flex;align-items:center;gap:12px}
-    header h1{font-size:18px;margin:0;letter-spacing:.02em;color:var(--c-primary)}
-    main{max-width:720px;margin:0 auto;padding:12px}
-    .card{background:var(--c-paper);border:1px solid var(--c-line);border-radius:var(--radius);padding:14px;margin:12px 0;box-shadow:var(--shadow)}
-    label{font-weight:600;display:block}
-    textarea{width:100%;padding:10px;border:1px solid var(--c-line);border-radius:12px;background:#fff;font-size:16px;color:#000;resize:vertical}
-    select{width:auto;min-width:180px;padding:8px 10px;border:1px solid var(--c-line);border-radius:10px;background:#fff;color:#000}
-    .hint{font-size:12px;color:var(--c-muted);margin-top:4px}
-    .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px}
-    .row.space-between{justify-content:space-between}
-    .btn{appearance:none;border:1px solid var(--c-line);background:var(--c-accent);border-radius:12px;padding:10px 14px;font-size:16px;color:#000;cursor:pointer}
-    .btn.primary{background:var(--c-primary);color:#fff;border-color:var(--c-primary)}
-    .btn.ghost{background:transparent;color:var(--c-ink)}
-    .small-muted{font-size:13px;color:var(--c-muted)}
-    /* saved highlight and disabled look */
-    .btn.saved{background:#ffe38a;color:#333;border-color:#ffe38a}
-    .btn:disabled{cursor:not-allowed;opacity:1}
+    header {
+      margin-bottom: 20px;
+    }
+    button {
+      padding: 10px 20px;
+      margin: 5px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .btn-clear {
+      background: #d9534f;
+      color: #fff;
+    }
+    .btn-clear:hover {
+      opacity: 0.8;
+    }
   </style>
 </head>
 <body>
-  <header class="app-header">
-    <div class="inner">
-      <h1>Neco-Tubu ネコのつぶやき</h1>
-    </div>
+  <header>
+    <h1>ネコのつぶやき</h1>
   </header>
 
   <main>
-    <section class="card">
-      <h2 style="color:var(--c-accent);margin-top:0">今日のあなた</h2>
-
-      <label>性別を選んでください</label>
-      <div class="row">
-        <label><input type="radio" name="owner-gender" value="male"> 男性</label>
-        <label><input type="radio" name="owner-gender" value="female"> 女性</label>
-        <label><input type="radio" name="owner-gender" value="other"> その他</label>
-      </div>
-
-      <label style="margin-top:10px">今日のひとこと</label>
-      <textarea id="note" rows="4" placeholder="今日の気分や出来事をひとことで"></textarea>
-
-      <div class="row" id="dateWeatherRow" style="margin-top:8px">
-        <span id="todayLabel" class="small-muted">YYYY年M月D日（曜）</span>
-        <label class="small-muted" for="weather" style="margin-left:8px">天気：</label>
-        <select id="weather" aria-label="今日の天気">
-          <option value="sunny">☀️ 晴</option>
-          <option value="cloudy">☁️ くもり</option>
-          <option value="rain">🌧️ 雨</option>
-          <option value="snow">❄️ 雪</option>
-          <option value="storm">⛈️ 嵐</option>
-        </select>
-      </div>
-
-      <div class="row space-between" style="margin-top:12px">
-        <div class="row" style="gap:8px">
-          <button id="btn-save" class="btn primary">保存する</button>
-          <a href="index_cats.html#cats" class="btn">あなたのネコ</a>
-        </div>
-        <button id="btn-clear" class="btn ghost">全消去</button>
-      </div>
-    </section>
+    <p>ここにネコのつぶやき機能やUIが入ります。</p>
+    <button class="btn-clear" id="clearAll">全消去（初期状態に戻す）</button>
   </main>
 
-  <script src="js/config.js"></script>
-  <script src="js/api.js"></script>
   <script>
-    (function(){
-      var NS = (window.APP_CONFIG && window.APP_CONFIG.STORAGE_NS) || "necotubu_v1";
-      var KEY_NOTE    = NS + ":home:note";
-      var KEY_GENDER  = NS + ":home:gender";
-      var KEY_WEATHER = NS + ":home:weather";
-
-      var noteEl    = document.getElementById('note');
-      var saveBtn   = document.getElementById('btn-save');
-      var clearBtn  = document.getElementById('btn-clear');
-      var weatherEl = document.getElementById('weather');
-      var todayEl   = document.getElementById('todayLabel');
-
-      function todayJST(){
-        var now = new Date();
-        var jst = new Date(now.toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' }));
-        var w = '日月火水木金土'.charAt(jst.getDay());
-        return jst.getFullYear() + '年' + (jst.getMonth()+1) + '月' + jst.getDate() + '日（' + w + '）';
+    document.getElementById("clearAll").addEventListener("click", function() {
+      if (confirm("このままOKを押すとこれまでのデータ全てが消去されます。\n戻る・OK")) {
+        // データ全消去
+        localStorage.clear();
+        // 初期設定画面へ
+        window.location.href = "index.html";
+      } else {
+        // 何もしない（戻る）
       }
-
-      /* button state helpers */
-      function markSaved(){
-        saveBtn.disabled = true;
-        saveBtn.classList.add('saved');
-        saveBtn.classList.add('primary');
-        saveBtn.textContent = '保存済み';
-      }
-      function markDirty(){
-        saveBtn.disabled = false;
-        saveBtn.classList.remove('saved');
-        saveBtn.textContent = '保存する';
-      }
-      function attachDirtyListeners(){
-        noteEl.addEventListener('input', markDirty);
-        weatherEl.addEventListener('change', markDirty);
-        var radios = document.querySelectorAll('input[name="owner-gender"]');
-        for(var i=0;i<radios.length;i++){
-          radios[i].addEventListener('change', markDirty);
-        }
-      }
-
-      document.addEventListener('DOMContentLoaded', function(){
-        todayEl.textContent = todayJST();
-        try{
-          var note = localStorage.getItem(KEY_NOTE);
-          if(note!==null) noteEl.value = note;
-
-          var gender = localStorage.getItem(KEY_GENDER);
-          if(gender){
-            var el = document.querySelector('input[name="owner-gender"][value="' + gender + '"]');
-            if(el) el.checked = true;
-          }
-
-          var w = localStorage.getItem(KEY_WEATHER);
-          if(w && weatherEl.querySelector('option[value="' + w + '"]')){
-            weatherEl.value = w;
-          }
-        }catch(e){}
-
-        /* initial state: treated as saved */
-        markSaved();
-        attachDirtyListeners();
-      });
-
-      /* save without confirm */
-      saveBtn.addEventListener('click', function(){
-        if(saveBtn.disabled) return;
-        try{
-          localStorage.setItem(KEY_NOTE, noteEl.value || "");
-          var sel = document.querySelector('input[name="owner-gender"]:checked');
-          localStorage.setItem(KEY_GENDER, sel ? sel.value : "");
-          localStorage.setItem(KEY_WEATHER, weatherEl.value || "sunny");
-          markSaved();
-        }catch(e){
-          alert('保存に失敗しました。');
-        }
-      });
-
-      /* delete all (with confirm) */
-      clearBtn.addEventListener('click', function(){
-        var msg = 'このままOKを押すと、これまでのネコつぶデータはすべて消去されます。\n' +
-                  '（OK＝消す / キャンセル＝消さない）';
-        if(!confirm(msg)) return;
-
-        try{
-          localStorage.removeItem(KEY_NOTE);
-          localStorage.removeItem(KEY_GENDER);
-          localStorage.removeItem(KEY_WEATHER);
-
-          var SNAP_PREFIXES = [
-            'necotubu_snaps:',
-            'necotubu_snaps_today:',
-            'necotubu_snaps_calendar:'
-          ];
-          var CATS_KEY = 'necotubu_cats';
-
-          var toDelete = [];
-          for(var i=0;i<localStorage.length;i++){
-            var k = localStorage.key(i);
-            if(!k) continue;
-            if(k===CATS_KEY){ toDelete.push(k); continue; }
-            if(k.indexOf(NS + ':')===0){ toDelete.push(k); continue; }
-            for(var j=0;j<SNAP_PREFIXES.length;j++){
-              if(k.indexOf(SNAP_PREFIXES[j])===0){ toDelete.push(k); break; }
-            }
-          }
-          for(var t=0;t<toDelete.length;t++){
-            localStorage.removeItem(toDelete[t]);
-          }
-
-          alert('全データを消去しました。ページを再読み込みします。');
-          location.reload();
-        }catch(e){
-          alert('消去に失敗しました。必要な権限やブラウザ設定をご確認ください。');
-        }
-      });
-    })();
+    });
   </script>
 </body>
 </html>
