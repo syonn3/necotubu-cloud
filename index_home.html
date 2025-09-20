@@ -44,12 +44,7 @@
     <section class="card">
       <h2 style="color:var(--c-accent);margin-top:0">今日のあなた</h2>
 
-      <label>性別を選んでください</label>
-      <div class="row">
-        <label><input type="radio" name="owner-gender" value="male"> 男性</label>
-        <label><input type="radio" name="owner-gender" value="female"> 女性</label>
-        <label><input type="radio" name="owner-gender" value="other"> その他</label>
-      </div>
+      <!-- ※ 性別入力ブロックは仕様変更により削除（index.htmlに移動） -->
 
       <label style="margin-top:10px">今日のひとこと</label>
       <textarea id="note" rows="4" placeholder="今日の気分や出来事をひとことで"></textarea>
@@ -66,7 +61,7 @@
         </select>
       </div>
 
-      <!-- ▼ 全消去ボタンだけ右端へ -->
+      <!-- ▼ 全消去ボタンだけ右端へ（動作は確認→OKで初期化して index.html へ） -->
       <div class="row space-between" style="margin-top:12px">
         <div class="row" style="gap:8px">
           <button id="btn-save" class="btn primary">保存する</button>
@@ -83,7 +78,7 @@
     (function(){
       const NS = (window.APP_CONFIG && window.APP_CONFIG.STORAGE_NS) || "necotubu_v1";
       const KEY_NOTE    = NS + ":home:note";
-      const KEY_GENDER  = NS + ":home:gender";
+      const KEY_GENDER  = NS + ":home:gender"; // 互換用（ここではUI表示しないが消去時は対象）
       const KEY_WEATHER = NS + ":home:weather";
 
       const noteEl   = document.getElementById('note');
@@ -104,11 +99,8 @@
         try{
           const note = localStorage.getItem(KEY_NOTE);
           if(note!==null) noteEl.value = note;
-          const gender = localStorage.getItem(KEY_GENDER);
-          if(gender){
-            const el = document.querySelector('input[name="owner-gender"][value="'+gender+'"]');
-            if(el) el.checked = true;
-          }
+
+          // 性別UIはここでは扱わない（保存済みの値は index.html で管理）
           const w = localStorage.getItem(KEY_WEATHER);
           if(w && weatherEl.querySelector('option[value="'+w+'"]')){
             weatherEl.value = w;
@@ -119,30 +111,28 @@
       saveBtn.addEventListener('click', ()=>{
         try{
           localStorage.setItem(KEY_NOTE, noteEl.value || "");
-          const sel = document.querySelector('input[name="owner-gender"]:checked');
-          localStorage.setItem(KEY_GENDER, sel ? sel.value : "");
+          // 性別は index.html で保存・管理（ここでは触らない）
           localStorage.setItem(KEY_WEATHER, weatherEl.value || "sunny");
           alert('保存しました。');
         }catch(e){ alert('保存に失敗しました。'); }
       });
 
-      // —— 全消去：ネコつぶのデータだけを一括削除（OK=消す / キャンセル=消さない）
+      // —— 全消去：確認（戻る／OK）→ OKで全初期化 → index.html に戻る
       clearBtn.addEventListener('click', ()=>{
-        const msg = 'このままOKを押すと、これまでのネコつぶデータはすべて消去されます。\\n' +
-                    '（OK＝消す / キャンセル＝消さない）';
-        if(!confirm(msg)) return;
+        const ok = confirm("このままOKを押すとこれまでのデータ全てが消去されます。\n戻る・OK");
+        if(!ok) return;
 
         try{
-          // まず、このページのキー
+          // このページのキー
           localStorage.removeItem(KEY_NOTE);
           localStorage.removeItem(KEY_GENDER);
           localStorage.removeItem(KEY_WEATHER);
 
-          // すべてのネコ・すべての日のデータを対象（ネコつぶ専用キーのみ）
+          // 既存実装を尊重：ネコつぶ関連キーを一掃
           const SNAP_PREFIXES = [
-            'necotubu_snaps:',             // 旧（配列）
-            'necotubu_snaps_today:',       // 当日
-            'necotubu_snaps_calendar:'     // 全履歴
+            'necotubu_snaps:',
+            'necotubu_snaps_today:',
+            'necotubu_snaps_calendar:'
           ];
           const CATS_KEY = 'necotubu_cats';
 
@@ -155,12 +145,13 @@
             if(SNAP_PREFIXES.some(p => k.startsWith(p))){ toDelete.push(k); continue; }
           }
           toDelete.forEach(k => localStorage.removeItem(k));
-
-          alert('全データを消去しました。ページを再読み込みします。');
-          location.reload();
         }catch(e){
           alert('消去に失敗しました。必要な権限やブラウザ設定をご確認ください。');
+          return;
         }
+
+        // 初期設定へ
+        window.location.href = "index.html";
       });
     })();
   </script>
