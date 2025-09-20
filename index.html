@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Neco-Tubu 初期設定</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      background: #f4f4f4;
+      padding: 20px;
+      text-align: center;
+    }
+    .form-box {
+      background: #fff;
+      padding: 20px;
+      border-radius: 8px;
+      display: inline-block;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+    }
+    .form-box h2 {
+      margin-bottom: 15px;
+    }
+    .form-box label {
+      margin: 0 10px;
+    }
+    button {
+      margin-top: 20px;
+      padding: 10px 20px;
+      border: none;
+      border-radius: 6px;
+      background: #ff7f32;
+      color: #fff;
+      font-size: 16px;
+      cursor: pointer;
+    }
+    button:hover {
+      opacity: 0.8;
+    }
+  </style>
+</head>
+<body>
+  <div class="form-box">
+    <h2>主人の性別を選んでください</h2>
+    <form id="genderForm">
+      <label><input type="radio" name="gender" value="male"> 男</label>
+      <label><input type="radio" name="gender" value="female"> 女</label>
+      <label><input type="radio" name="gender" value="none" checked> 非選択</label>
+      <br>
+      <button type="submit">決定</button>
+    </form>
+  </div>
+
+  <script>
+    document.getElementById("genderForm").addEventListener("submit", function(e) {
+      e.preventDefault();
+      const gender = document.querySelector('input[name="gender"]:checked').value;
+      localStorage.setItem("ownerGender", gender); // 保存
+      window.location.href = "index_home.html"; // 本画面へ移動
+    });
+  </script>
+</body>
+</html>
