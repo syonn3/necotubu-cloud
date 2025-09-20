@@ -31,7 +31,7 @@
         <label><input type="radio" name="owner-gender" value="female"> 女</label>
         <label><input type="radio" name="owner-gender" value="none" checked> 非選択</label>
       </div>
-      <p class="hint">あとから変更できます。決定するとホーム画面に進みます。</p>
+      <p class="hint">あとから変更できません。決定するとホーム画面に進みます。</p>
       <div class="row" style="margin-top:12px">
         <button class="btn" id="btn-go">決定</button>
       </div>
@@ -42,11 +42,9 @@
   <script src="js/api.js"></script>
   <script>
     (function(){
-      // 既存の名前空間を尊重（壊さない）
       const NS = (window.APP_CONFIG && window.APP_CONFIG.STORAGE_NS) || "necotubu_v1";
-      const KEY_GENDER = NS + ":home:gender"; // 互換のため同じキー名を採用
+      const KEY_GENDER = NS + ":home:gender"; // 既存キーを尊重
 
-      // 既に値があれば反映
       document.addEventListener('DOMContentLoaded', () => {
         try{
           const g = localStorage.getItem(KEY_GENDER);
@@ -57,7 +55,6 @@
         }catch(e){}
       });
 
-      // 決定 → 保存してホームへ
       document.getElementById('btn-go').addEventListener('click', () => {
         try{
           const sel = document.querySelector('input[name="owner-gender"]:checked');
