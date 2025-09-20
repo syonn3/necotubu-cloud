@@ -225,7 +225,6 @@
         const i=arr.findIndex(c=>c.id===cat.id);
         if(i>=0) arr[i]=cat; else arr.push(cat);
         saveCats(arr);
-        alert('保存しました。');
         location.href='index_cats.html';
       });
     })();
