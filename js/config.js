@@ -3,7 +3,7 @@
   const UNIFIED_NS = "necotubu_v1"; // 写真やデータを環境間で共通化
 
   // ★ ここを書き換える：新しい Gemini API キーを入れてください（dev/prod両方に適用）
-  const DEFAULT_GEMINI_API_KEY = "";
+  const DEFAULT_GEMINI_API_KEY = "via-gas";
 
   const ENVS = {
     dev: {
