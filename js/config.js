@@ -3,12 +3,12 @@
   const UNIFIED_NS = "necotubu_v1"; // 写真やデータを環境間で共通化
 
   // ★ ここを書き換える：新しい Gemini API キーを入れてください（dev/prod両方に適用）
-  const DEFAULT_GEMINI_API_KEY = "AIzaSyAMvJlxlfBnmBKOzzwPWdEe1tUzW4_v7CU";
+  const DEFAULT_GEMINI_API_KEY = "";
 
   const ENVS = {
     dev: {
       NAME: "dev",
-      API_BASE_URL: "",
+      API_BASE_URL: "https://script.google.com/macros/s/AKfycbyeouSzRziHF0Pu-UU4oQR7vQ7lyMozBkcw3D1bWKvMkqTxMY8oUE9jNvyOuEZmyMBW/exec",
       TIMEOUT_MS: 15000,
       FEATURE_FLAGS: { diaryAutoSave: true },
       STORAGE_NS: UNIFIED_NS,
