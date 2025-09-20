@@ -1,63 +1,72 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Neco-Tubu 初期設定</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Neco-Tubu 初期設定（主人の性別）</title>
   <style>
-    body {
-      font-family: sans-serif;
-      background: #f4f4f4;
-      padding: 20px;
-      text-align: center;
+    :root{
+      --c-bg:#1C1A17; --c-paper:#2E2B28; --c-ink:#F5F1E6; --c-muted:#CBAE82;
+      --c-primary:#FF7F32; --c-accent:#A3C586; --c-line:#4A453F;
+      --shadow:0 3px 12px rgba(0,0,0,.4); --radius:16px;
     }
-    .form-box {
-      background: #fff;
-      padding: 20px;
-      border-radius: 8px;
-      display: inline-block;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.2);
-    }
-    .form-box h2 {
-      margin-bottom: 15px;
-    }
-    .form-box label {
-      margin: 0 10px;
-    }
-    button {
-      margin-top: 20px;
-      padding: 10px 20px;
-      border: none;
-      border-radius: 6px;
-      background: #ff7f32;
-      color: #fff;
-      font-size: 16px;
-      cursor: pointer;
-    }
-    button:hover {
-      opacity: 0.8;
-    }
+    *{box-sizing:border-box}
+    html,body{margin:0;padding:0;background:var(--c-bg);color:var(--c-ink);font-family:-apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Noto Sans JP","Yu Gothic UI","Meiryo",sans-serif;line-height:1.6}
+    main{max-width:720px;margin:0 auto;padding:20px}
+    .card{background:var(--c-paper);border:1px solid var(--c-line);border-radius:var(--radius);padding:18px;box-shadow:var(--shadow);margin-top:18px}
+    h1{font-size:20px;margin:0 0 8px;color:var(--c-primary)}
+    .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:10px}
+    .btn{appearance:none;border:1px solid var(--c-primary);background:var(--c-primary);color:#fff;border-radius:12px;padding:10px 14px;font-size:16px;cursor:pointer}
+    .hint{font-size:13px;color:var(--c-muted);margin-top:6px}
+    label[role="group-label"]{display:block;font-weight:600;margin-top:6px}
   </style>
 </head>
 <body>
-  <div class="form-box">
-    <h2>主人の性別を選んでください</h2>
-    <form id="genderForm">
-      <label><input type="radio" name="gender" value="male"> 男</label>
-      <label><input type="radio" name="gender" value="female"> 女</label>
-      <label><input type="radio" name="gender" value="none" checked> 非選択</label>
-      <br>
-      <button type="submit">決定</button>
-    </form>
-  </div>
+  <main>
+    <section class="card">
+      <h1>初期設定</h1>
+      <label role="group-label">主人の性別を選んでください</label>
+      <div class="row" id="gender-group" aria-label="主人の性別">
+        <label><input type="radio" name="owner-gender" value="male"> 男</label>
+        <label><input type="radio" name="owner-gender" value="female"> 女</label>
+        <label><input type="radio" name="owner-gender" value="none" checked> 非選択</label>
+      </div>
+      <p class="hint">あとから変更できます。決定するとホーム画面に進みます。</p>
+      <div class="row" style="margin-top:12px">
+        <button class="btn" id="btn-go">決定</button>
+      </div>
+    </section>
+  </main>
 
+  <script src="js/config.js"></script>
+  <script src="js/api.js"></script>
   <script>
-    document.getElementById("genderForm").addEventListener("submit", function(e) {
-      e.preventDefault();
-      const gender = document.querySelector('input[name="gender"]:checked').value;
-      localStorage.setItem("ownerGender", gender); // 保存
-      window.location.href = "index_home.html"; // 本画面へ移動
-    });
+    (function(){
+      // 既存の名前空間を尊重（壊さない）
+      const NS = (window.APP_CONFIG && window.APP_CONFIG.STORAGE_NS) || "necotubu_v1";
+      const KEY_GENDER = NS + ":home:gender"; // 互換のため同じキー名を採用
+
+      // 既に値があれば反映
+      document.addEventListener('DOMContentLoaded', () => {
+        try{
+          const g = localStorage.getItem(KEY_GENDER);
+          if(g){
+            const el = document.querySelector('input[name="owner-gender"][value="'+g+'"]');
+            if(el) el.checked = true;
+          }
+        }catch(e){}
+      });
+
+      // 決定 → 保存してホームへ
+      document.getElementById('btn-go').addEventListener('click', () => {
+        try{
+          const sel = document.querySelector('input[name="owner-gender"]:checked');
+          const val = sel ? sel.value : "none";
+          localStorage.setItem(KEY_GENDER, val);
+        }catch(e){}
+        window.location.href = "index_home.html";
+      });
+    })();
   </script>
 </body>
 </html>
