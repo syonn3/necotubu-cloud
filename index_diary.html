@@ -246,24 +246,43 @@
           const cfg = window.APP_CONFIG || {};
           return cfg.GEMINI_MODEL || cfg.MODEL || 'gemini-1.5-flash';
         }
+        // ★ 修正：GAS（APP_CONFIG.API_BASE_URL）経由で呼び出す実装に変更
         async function callGeminiStrict(prompt, {maxTokens=240, retries=4}={}){
-          const apiKey = getGeminiKey();
-          if(!apiKey) throw new Error('GEMINI_API_KEY が見つかりません（js/config.js を確認）');
-          const model = encodeURIComponent(getGeminiModel());
-          const url = APP_CONFIG.API_BASE_URL; // ← GAS WebアプリURLが入っている
-const body = {
-  model: APP_CONFIG.GEMINI_MODEL || "deepseek-chat",
-  contents,                // 既存の contents をそのまま使う
-  systemInstruction,       // 既存の systemInstruction をそのまま使う（あれば）
-  temperature: APP_CONFIG.GEMINI && APP_CONFIG.GEMINI.TEMPERATURE || 1.0,
-  maxTokens:  APP_CONFIG.GEMINI && APP_CONFIG.GEMINI.MAX_TOKENS   || 400
-};
-const resp = await fetch(url, {
-  method: "POST",
-  headers: { "Content-Type": "application/json" }, // ← 認証系ヘッダは付けない
-  body: JSON.stringify(body)
-});
+          const apiBase = (window.APP_CONFIG && window.APP_CONFIG.API_BASE_URL) || '';
+          if(!apiBase) throw new Error('AI API の接続先が未設定です（config.js の API_BASE_URL を確認）');
+          const model = getGeminiModel(); // deepseek-chat を想定（configで上書き）
 
+          const body = {
+            model: model,
+            contents: [{ role: "user", parts: [{ text: String(prompt||'') }]}],
+            temperature: (window.APP_CONFIG && window.APP_CONFIG.GEMINI && window.APP_CONFIG.GEMINI.TEMPERATURE) || 0.9,
+            maxTokens: maxTokens
+          };
+
+          let lastErr=null;
+          for(let i=0;i<retries;i++){
+            try{
+              const res = await fetch(apiBase, {
+                method:"POST",
+                headers:{ "Content-Type":"application/json" }, // 認証ヘッダは付けない（GAS側で鍵を保持）
+                body: JSON.stringify(body)
+              });
+              const data = await res.json().catch(()=> ({}));
+              if(!res.ok || (data && data.error)){
+                const msg = (data && data.error && data.error.message) ? data.error.message : `HTTP ${res.status}`;
+                throw new Error(msg);
+              }
+              // GAS側で Gemini 風 {candidates[{content{parts[{text}]}}]} に正規化して返している
+              const text = (data?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
+              if(!text) throw new Error('AI応答が空でした');
+              return text;
+            }catch(e){
+              lastErr=e;
+              await new Promise(r=> setTimeout(r, 250*(i+1)));
+            }
+          }
+          throw lastErr || new Error('AIに到達できませんでした');
+        }
 
         function promptBuilder(ctx){
           const {name, ageYears, personality, territory, weatherKey, note, ownerGender} = ctx;
