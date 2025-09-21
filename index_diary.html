@@ -236,11 +236,18 @@
           return '';
         }
 
+        /* ====== ネガ検知：ネガなら必ずフォロー ====== */
+        function hasNegativeNote(s){
+          s = String(s||'').toLowerCase();
+          const re = /(しんど|疲れ|つかれ|いや|嫌|やめたい|無理|むり|つら|辛い|かなしい|悲しい|落ち込|しょんぼり|へこむ|だるい|不安|こわい|怖い)/;
+          return re.test(s);
+        }
+
         /* ====== DeepSeek（GAS）呼び出し：POST＋JSONP 同時実行 ====== */
         function getApiBase(){
           const base = (window.APP_CONFIG && window.APP_CONFIG.API_BASE_URL) || '';
           if(!base) throw new Error('AI API の接続先が未設定です（config.js の API_BASE_URL を確認）');
-          return base.replace(/\/+$/,'');  // ★ /exec は“追加しない”
+          return base.replace(/\/+$/,'');  // /exec は“追加しない”
         }
         function getGeminiModel(){
           const cfg = window.APP_CONFIG || {};
@@ -300,7 +307,43 @@
           return (data && data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0] && data.candidates[0].content.parts[0].text) || '';
         }
 
-        function promptBuilder(ctx){
+        /* ====== 性格・年齢の口調方針をプロンプトに組み立てる ====== */
+        function buildToneRules(ageYears, persona){
+          const lines = [];
+
+          // 年齢での書き方
+          if (ageYears != null && ageYears < 1) {
+            lines.push('ひらがな中心（約90%）、漢字はごく少なめ。文は短く。幼い語感。');
+          } else if (ageYears != null && ageYears < 2) {
+            lines.push('ひらがな多め、漢字は2割ほど。少し幼い語感。');
+          } else {
+            lines.push('自然な大人びた日本語。');
+          }
+
+          // 性格での口調
+          switch (persona) {
+            case 'energetic':
+              lines.push('元気で明るい。短めの文をテンポよく。「！」は少し多め。体の動きを少し描く。');
+              break;
+            case 'calm':
+              lines.push('やわらかく、ていねい。落ち着いた語感。比喩はやさしめ。');
+              break;
+            case 'clingy':
+              lines.push('呼びかけが少し多い。甘えた雰囲気。安心を求める感じ。');
+              break;
+            case 'mypace':
+              lines.push('のんびり。間（…）をときどき使って、ふわっとした言い回し。');
+              break;
+            case 'cool':
+              lines.push('端的に言い切る。感嘆符は控えめ。少し距離のある語感。');
+              break;
+            default:
+              lines.push('素直で自然。');
+          }
+          return lines.join(' / ');
+        }
+
+        function promptBuilder(ctx, opts){
           const {name, ageYears, personality, territory, weatherKey, note, ownerGender} = ctx;
           const now2=todayJST();
           const month = now2.getMonth()+1, hour = now2.getHours(), day = now2.getDate(), wday = now2.getDay();
@@ -308,21 +351,42 @@
           const hints = seasonalHints(month,hour,wday,weatherKey);
           const ev = eventWord(month, day);
           const ownerLabel = ownerNameByPersona(ownerGender, persona, territory);
-          const negativeWords = ['しんど','疲れ','つかれ','嫌','やめたい','むり','つら'];
+
+          const mentionOwner = !!(opts && opts.mentionOwner);
+          const forceComfort = !!(opts && opts.forceComfort);
+
+          const tone = buildToneRules(ageYears, persona);
+
+          const ownerBlock = mentionOwner
+              ? '【主人のひとこと】'+(String(note||'(なし)').slice(0,120))+' / 呼び方例:'+ownerLabel
+              : '【主人のひとこと】（この回は触れない） / 呼び方例:'+ownerLabel;
+
+          const rules = [
+            '- 一人称は常に自分の名前「'+name+'」。',
+            '- 季節・時間帯・天気のニュアンスを必ず入れる（明るい夕暮れ、朝焼け、日差し、雪が綿菓子みたい など）。',
+            '- 具体的な年月日・曜日・時刻は書かない（抽象表現のみ）。',
+            '- 「にゃ」「にゃん」などの擬音は使わない。',
+            '- 出力は1段落のみ。最大'+TWEET_MAX+'文字ていど。句読点は自然に。'
+          ];
+
+          // ひとことの扱い
+          if (forceComfort) {
+            rules.push('- 主人のひとことがネガなら、必ず一度だけやさしくフォローし、安心させる表現を入れる。責めない・重くしない。');
+          } else if (mentionOwner) {
+            rules.push('- 主人のひとことには一度だけ軽く触れる。繰り返さない。');
+          } else {
+            rules.push('- この回は主人のひとことには触れない。');
+          }
+
           return [
             'あなたは猫の詩的つぶやきを書くアシスタントです。',
             '【ねこ】名前:'+name+' / 性格:'+(personality||'不明')+' / テリトリー:'+(territory||'-'),
             '【推定年齢】'+(ageYears==null?'不明':(ageYears.toFixed(2)+'歳')),
             '【天気】'+(weatherKey||'-')+' / 【季節・時間ヒント】'+(hints.join('、')||'なし')+' / 【イベント】'+(ev||'なし'),
-            '【主人のひとこと】'+(String(note||'(なし)').slice(0,120))+' / 呼び方例:'+ownerLabel,
+            ownerBlock,
+            '【口調方針】'+tone,
             'ルール：',
-            '- 1歳までは性格関係なく赤ちゃん言葉でひらがな中心。1〜2歳は段階的に性格寄り＆漢字を少し増やす。',
-            '- 「にゃ」「にゃん」などは禁止。具体的な年月日・曜日・時刻も禁止（抽象表現のみ）。',
-            '- 一人称は常に自分の名前「'+name+'」。',
-            '- 季節・時間帯・天気のニュアンスを必ず入れる（明るい夕暮れ、朝焼け、日差し、雪が綿菓子みたい など）。',
-            '- 主人のひとことは3回に1回ていど優しく解釈。ネガティブ（'+negativeWords.join('、')+'）があれば必ず心配する。',
-            '- 事実不明の体験談は書かない。過去や他の猫と似すぎる表現は避ける。',
-            '出力：1段落のみ。最大'+TWEET_MAX+'文字程度。句読点は自然に。'
+            rules.join('\n')
           ].join('\n');
         }
 
@@ -462,13 +526,18 @@
 
             const others = recentAllTweets(60);
             const ctx = ctxBase();
-            const basePrompt = promptBuilder(ctx);
+
+            // ひとことの扱い：ネガなら必ず触れる。ネガでないときは約1/3だけ触れる。
+            const noteRaw = String(ctx.note || '');
+            const isNeg = hasNegativeNote(noteRaw);
+            const mentionOwner = isNeg || (Math.random() < 0.34);
 
             try{
               let finalText='';
               for(let i=0;i<4;i++){
-                const add = i? '\n【追加条件】前回までと似た言い回しを避け、新しい語彙で書き直してください（強度:'+i+'）。' : '';
-                const data = await callAIwithRace(basePrompt + add, {maxTokens:240});
+                const basePrompt = promptBuilder(ctx, { mentionOwner, forceComfort: isNeg });
+                const addRephrase = i? '\n【追加条件】前回までと似た言い回しを避け、新しい語彙で書き直してください（強度:'+i+'）。' : '';
+                const data = await callAIwithRace(basePrompt + addRephrase, {maxTokens:240});
                 let draft = sanitize(String(pickTextFromAI(data)||''));
                 if(!/[。！？]$/.test(draft)) draft+='。';
                 draft = dedupeEndings(draft);
