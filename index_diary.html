@@ -80,7 +80,7 @@
           </div>
           <button id="btn-regen" class="btn">もう１回聴く</button>
         </div>
-        <p id="tw-loading" class="hint">つぶやきに聞き耳を立てています‥（最大20秒）</p>
+        <p id="tw-loading" class="hint">つぶやきに聞き耳を立てています‥（最大30秒）</p>
         <div id="tw-body" class="tw" style="display:none"></div>
         <div id="tw-error" class="error-box"></div>
       </section>
@@ -113,7 +113,7 @@
 
     <script src="js/config.js"></script>
     <script src="js/api.js"></script>
-    <!-- gemini_client.js は使いません（400回避のため）。 -->
+    <!-- gemini_client.js は使いません（GAS経由 DeepSeek） -->
     <script src="js/snaps.js"></script>
 
     <script>
@@ -137,26 +137,28 @@
         function firstChar(s){ s=String(s||'').trim(); return s? s[0]:'？'; }
         function colFor(str){ const AVA=['#7E5A3C','#6B7A40','#AD6A3B','#5E5347','#8C7448','#7A614C','#9A6E4D']; let h=0; str=String(str||''); for(let i=0;i<str.length;i++)h=(h*31+str.charCodeAt(i))|0; return AVA[Math.abs(h)%AVA.length]; }
 
-        // 年齢表示 "1歳11か月" など（23か月対策）
-        function fmtAgeForProfile(ageYears, bday){
-          if(ageYears==null) return '年齢: 不明';
-          const months = Math.max(0, Math.floor(ageYears*12));
-          if(months < 24){
-            const y = Math.floor(months/12);
-            const m = months - y*12;
-            if(y>=1) return `年齢: ${y}歳 ${m}か月`;
-            return `年齢: ${months}か月`;
-          }
-          const y = Math.floor(ageYears);
-          const m = Math.floor((ageYears - y) * 12);
-          return `年齢: ${y}歳 ${m}か月`;
+        function sanitize(t){
+          return String(t||'')
+            .replace(/にゃん?|ﾆｬ|ﾆｬﾝ|ニャン/gi,'')
+            .replace(/\d{1,2}月\d{1,2}日/g,'きょう')
+            .replace(/\b\d{1,2}:\d{2}\b/g,'')
+            .replace(/(月曜|火曜|水曜|木曜|金曜|土曜|日曜)/g,'')
+            .trim();
+        }
+        function dedupeEndings(s){
+          let out=s;
+          out=out.replace(/(だよ|だね|なの|かな)([よねのー〜]+)(?=。|！|？|$)/g,'$1');
+          out=out.replace(/(よ|ね|の)+(だよ|だね|なの|かな)/g,'$2');
+          out=out.replace(/(だよ|だね|なの|かな)。(?:\s*)(だよ|だね|なの|かな)。(?!\S)/g,'$1。');
+          return out;
+        }
+        function similarity(a,b){
+          a=String(a||''); b=String(b||''); if(!a||!b) return 0;
+          const grams=(s)=>{ const g=new Set(); for(let i=0;i<s.length-1;i++) g.add(s.slice(i,i+2)); return g; };
+          const A=grams(a), B=grams(b); let inter=0; A.forEach(x=>{ if(B.has(x)) inter++; });
+          return inter/Math.max(1, A.size + B.size - inter);
         }
 
-        // ネガ検知
-        const NEG_WORDS = ['しんど','疲れ','つかれ','嫌','やめたい','むり','つら','落ち込','不安','かなしい','悲しい','つかれた'];
-        function hasNeg(s){ s=String(s||'').toLowerCase(); return NEG_WORDS.some(w=> s.includes(w)); }
-
-        // —— 永続化
         function twKey(id){ return `${NS}:tw:${id}`; }
         function saveTw(id, ymd, text, weather){
           const k=twKey(id); const box=JSON.parse(localStorage.getItem(k)||'{}');
@@ -181,7 +183,136 @@
           return res.slice(-limit);
         }
 
-        // パーソナリティ → 文体傾向
+        /* ========== 表示（年齢表記を厳密化：1歳未満は「◯か月」、1〜2歳は「1歳◯か月」） ========== */
+        function renderAgeText(ageYears, hasBirthday){
+          if(ageYears==null) return '年齢: 不明';
+          if(!hasBirthday){
+            const months=Math.max(1, Math.floor((ageYears||0)*12));
+            return '年齢: 約'+months+'か月（推定）';
+          }
+          if(ageYears < 1){
+            return '年齢: '+Math.floor(ageYears*12)+'か月';
+          }else if(ageYears < 2){
+            const m=Math.floor(ageYears*12) - 12;
+            return '年齢: 1歳 '+m+'か月';
+          }else{
+            const y=Math.floor(ageYears), m=Math.floor((ageYears-y)*12);
+            return '年齢: '+y+'歳 '+m+'か月';
+          }
+        }
+
+        /* ====== DeepSeek（GAS）呼び出し：POST＋JSONP 同時実行 ====== */
+        function getApiBase(){
+          const base = (window.APP_CONFIG && window.APP_CONFIG.API_BASE_URL) || '';
+          if(!base) throw new Error('AI API の接続先が未設定です（config.js の API_BASE_URL を確認）');
+          // 二重/exec防止
+          return base.replace(/\/+$/,'') + '/exec';
+        }
+        function getModel(){
+          const cfg = window.APP_CONFIG || {};
+          return cfg.GEMINI_MODEL || (cfg.GEMINI && cfg.GEMINI.MODEL) || 'deepseek-chat';
+        }
+        function getTemp(){ 
+          return (window.APP_CONFIG && window.APP_CONFIG.GEMINI && window.APP_CONFIG.GEMINI.TEMPERATURE) || 1.05; 
+        }
+
+        // JSONP（30秒）
+        function callJsonp(apiBase, prompt, {model, temperature, maxTokens}){
+          return new Promise((resolve, reject)=>{
+            const cbName = 'NT_JSONP_CB_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+            const url = apiBase + '?action=ai'
+              + '&model=' + encodeURIComponent(model)
+              + (typeof temperature==='number' ? '&temperature=' + encodeURIComponent(temperature) : '')
+              + (typeof maxTokens==='number' ? '&maxTokens=' + encodeURIComponent(maxTokens) : '')
+              + '&prompt=' + encodeURIComponent(prompt)
+              + '&callback=' + encodeURIComponent(cbName);
+
+            let settled = false;
+            const s = document.createElement('script');
+            const cleanup = ()=>{ try{ delete window[cbName]; }catch{}; if(s.parentNode) s.parentNode.removeChild(s); };
+
+            const timer = setTimeout(()=>{
+              if(!settled){ settled=true; cleanup(); reject(new Error('jsonp_timeout')); }
+            }, 30000); // 30秒
+
+            window[cbName] = (data)=>{
+              if(settled) return;
+              settled = true;
+              clearTimeout(timer);
+              cleanup();
+              resolve(data);
+            };
+
+            s.src = url;
+            s.onerror = ()=>{ if(!settled){ settled=true; clearTimeout(timer); cleanup(); reject(new Error('jsonp_load_error')); } };
+            document.head.appendChild(s);
+          });
+        }
+
+        // POST
+        async function callPost(apiBase, prompt, {model, temperature, maxTokens}){
+          const body = {
+            model,
+            contents: [{ role: "user", parts: [{ text: String(prompt||'') }]}],
+            temperature, maxTokens
+          };
+          const res = await fetch(apiBase, {
+            method:"POST",
+            headers:{ "Content-Type":"application/json" },
+            body: JSON.stringify(body)
+          });
+          const data = await res.json().catch(()=> ({}));
+          if(!res.ok || data.error){ 
+            const msg = (data && data.error && data.error.message) || ('HTTP '+res.status);
+            throw new Error('post:' + msg);
+          }
+          return data;
+        }
+
+        // Promise.any 相当：どちらか成功したら即確定。両方失敗で理由を返す
+        function callAIwithRace(prompt, {maxTokens=240}={}){
+          const apiBase = getApiBase();
+          const model = getModel();
+          const temperature = getTemp();
+
+          const pPost  = callPost(apiBase,  prompt, {model, temperature, maxTokens});
+          const pJsonp = callJsonp(apiBase, prompt, {model, temperature, maxTokens});
+
+          return new Promise((resolve, reject)=>{
+            let rejected = [];
+            let resolved = false;
+
+            const onResolve = (v)=>{ if(!resolved){ resolved = true; resolve(v); } };
+            const onReject  = (e)=>{ 
+              rejected.push(e);
+              if(rejected.length === 2 && !resolved) reject(rejected[0] || new Error('both_failed'));
+            };
+
+            pPost.then(onResolve).catch(onReject);
+            pJsonp.then(onResolve).catch(onReject);
+
+            // 最終保険（35秒）
+            setTimeout(()=>{ if(!resolved && rejected.length < 2) reject(new Error('both_timeout')); }, 35000);
+          });
+        }
+
+        function pickTextFromAI(data){
+          return (data && data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0] && data.candidates[0].content.parts[0].text) || '';
+        }
+
+        /* ====== 文章スタイル制御 ====== */
+        // 年齢→漢字比率（ひらがな優先）：誕生日〜6ヶ月 = 0%、6〜12ヶ月 = 10%、1〜2歳は10%→100%で線形
+        function kanjiRatioByAge(ageYears){
+          if(ageYears==null) return 60; // 不明なら中庸
+          const months = ageYears*12;
+          if(months <= 6)  return 0;
+          if(months <= 12) return 10;
+          if(months >= 24) return 100;
+          // 12〜24ヶ月を 10%→100% で線形
+          const t = (months - 12) / 12; // 0..1
+          return Math.round(10 + 90*t);
+        }
+
         function normPersonality(raw=''){
           const s=String(raw).toLowerCase();
           if(/やんちゃ|元気|活発/.test(s)) return 'energetic';
@@ -236,89 +367,7 @@
           return '';
         }
 
-        /* ====== DeepSeek（GAS）呼び出し：POST＋JSONP 同時実行 ====== */
-        function getApiBase(){
-          const base = (window.APP_CONFIG && window.APP_CONFIG.API_BASE_URL) || '';
-          if(!base) throw new Error('AI API の接続先が未設定です（config.js の API_BASE_URL を確認）');
-          return base.replace(/\/+$/,''); // 末尾スラ削除
-        }
-        function getModel(){
-          const cfg = window.APP_CONFIG || {};
-          return cfg.GEMINI_MODEL || cfg.MODEL || 'deepseek-chat';
-        }
-        function getTemp(){ return (window.APP_CONFIG && window.APP_CONFIG.GEMINI && window.APP_CONFIG.GEMINI.TEMPERATURE) || 1.05; }
-
-        function callJsonp(apiBase, prompt, {model, temperature, maxTokens}){
-          return new Promise((resolve, reject)=>{
-            const cbName = 'NT_JSONP_CB_' + Date.now() + '_' + Math.random().toString(36).slice(2);
-            const url = apiBase + '/exec?action=ai'
-              + '&model=' + encodeURIComponent(model)
-              + (typeof temperature==='number' ? '&temperature=' + encodeURIComponent(temperature) : '')
-              + (typeof maxTokens==='number' ? '&maxTokens=' + encodeURIComponent(maxTokens) : '')
-              + '&prompt=' + encodeURIComponent(prompt)
-              + '&callback=' + encodeURIComponent(cbName);
-
-            let settled = false;
-            const s = document.createElement('script');
-            const cleanup = ()=>{ try{ delete window[cbName]; }catch{}; if(s.parentNode) s.parentNode.removeChild(s); };
-            const timer = setTimeout(()=>{ if(!settled){ settled=true; cleanup(); reject(new Error('jsonp_timeout')); }}, 20000);
-
-            window[cbName] = (data)=>{ if(settled) return; settled=true; clearTimeout(timer); cleanup(); resolve(data); };
-            s.src = url;
-            s.onerror = ()=>{ if(!settled){ settled=true; clearTimeout(timer); cleanup(); reject(new Error('jsonp_load_error')); } };
-            document.head.appendChild(s);
-          });
-        }
-        async function callPost(apiBase, prompt, {model, temperature, maxTokens}){
-          const body = { model, contents: [{ role: "user", parts: [{ text: String(prompt||'') }]}], temperature, maxTokens };
-          const res = await fetch(apiBase + '/exec', {
-            method:"POST",
-            headers:{ "Content-Type":"application/json" },
-            body: JSON.stringify(body)
-          });
-          const data = await res.json().catch(()=> ({}));
-          if(!res.ok || data.error){ throw new Error((data && data.error && data.error.message) || ('HTTP '+res.status)); }
-          return data;
-        }
-        function callAIwithRace(prompt, {maxTokens=240}={}){
-          const apiBase = getApiBase();
-          const model = getModel();
-          const temperature = getTemp();
-          return new Promise((resolve, reject)=>{
-            let done=false;
-            const ok = d=>{ if(done) return; done=true; resolve(d); };
-            const ng = ()=>{};
-            callPost(apiBase, prompt, {model, temperature, maxTokens}).then(ok).catch(ng);
-            callJsonp(apiBase, prompt, {model, temperature, maxTokens}).then(ok).catch(ng);
-            setTimeout(()=>{ if(!done) reject(new Error('both_timeout')); }, 22000);
-          });
-        }
-        function pickTextFromAI(data){
-          return (data && data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0] && data.candidates[0].content.parts[0].text) || '';
-        }
-
-        // 目標漢字率（%）: 0–24ヶ月の厳密ルール
-        function targetKanjiPercent(ageYears){
-          if(ageYears==null) return 60;
-          const m = Math.max(0, Math.floor(ageYears*12));
-          if(m < 6)   return 0;     // 0–5ヶ月: 100%ひらがな
-          if(m < 12)  return 10;    // 6–11ヶ月: 10%
-          // 12–23ヶ月: 10% -> 100% 直線
-          const p = 10 + ((m - 12) / 12) * 90;
-          return Math.max(10, Math.min(100, Math.round(p)));
-        }
-        function personaStyleHint(persona){
-          switch(persona){
-            case 'energetic': return '勢いのある明るい語感。文末は「〜よ」「〜だ！」など元気め。';
-            case 'calm':      return 'おだやかでやさしい語感。言い切りより柔らかな文末。';
-            case 'clingy':    return '甘えた調子。「〜かな」「〜してほしい」など距離が近い感じ。';
-            case 'cool':      return '簡潔で少し距離のある語感。比喩は控えめに。';
-            case 'mypace':    return 'マイペースで観察多め。ふっとした脱線を一つだけ。';
-            default:          return '自然体で素直。';
-          }
-        }
-
-        function buildPrompt(ctx){
+        function promptBuilder(ctx, {styleStrength=0}={}){
           const {name, ageYears, personality, territory, weatherKey, note, ownerGender} = ctx;
           const now2=todayJST();
           const month = now2.getMonth()+1, hour = now2.getHours(), day = now2.getDate(), wday = now2.getDay();
@@ -326,28 +375,37 @@
           const hints = seasonalHints(month,hour,wday,weatherKey);
           const ev = eventWord(month, day);
           const ownerLabel = ownerNameByPersona(ownerGender, persona, territory);
-          const needComfort = hasNeg(note);
-          const kanjiPct = targetKanjiPercent(ageYears);
+          const negativeWords = ['しんど','疲れ','つかれ','嫌','やめたい','むり','つら','こまる','不安','かなしい','悲しい','くるしい','つかれた','さみしい'];
+          const hasNeg = negativeWords.some(w => String(note||'').includes(w));
+          const kanjiRatio = kanjiRatioByAge(ageYears);
 
-          const lines = [
-            'あなたは猫の「詩的な一段落のつぶやき」を書くアシスタントです。',
-            `ねこの名前: ${name} / 性格: ${personality||'不明'} / テリトリー: ${territory||'-'}`,
-            `推定年齢: ${ageYears==null?'不明':(ageYears.toFixed(2)+'歳')} / 目標漢字率: 約${kanjiPct}%`,
-            `天気: ${weatherKey||'-'} / 季節・時間ヒント: ${hints.join('、')||'なし'} / 季節イベント: ${ev||'なし'}`,
-            `主人のひとこと: ${String(note||'(なし)').slice(0,120)} / 主人の呼び方の例: ${ownerLabel}`,
-            '',
-            '出力ルール：',
-            `- 一人称は常に自分の名前「${name}」。`,
-            '- 日付や曜日や時刻の具体語は禁止（抽象表現のみ）。',
-            '- 「にゃ」「にゃん」などの鳴き真似は禁止。',
-            `- 文字種の目安：漢字率はおよそ ${kanjiPct}%。足りなければ漢字を増やし、超えるならひらがなに言い換える。`,
-            '- 0〜5か月は赤ちゃん言葉でひらがな100%。6〜11か月は漢字10%程度＋赤ちゃん言葉。1〜2歳は月齢に応じて漢字10%→100%へ段階的に増やす（赤ちゃん言葉は徐々に薄める）。',
-            `- 文体傾向：${personaStyleHint(persona)}`,
-            '- 主人のひとことには**毎回は触れない**（3回に1回程度）。',
-            (needComfort? '- 主人のひとことにネガティブがあるので、今回は必ず気遣い・慰めのニュアンスを含める。' : '- 主人のひとことがポジティブまたは無い場合は、必要なときだけ軽く触れる。'),
-            '- 一段落のみ。最大320文字。比喩や季節感はさりげなく。'
+          const styleNuance = [
+            'ことばはやさしく、ねこの目線で',
+            '句点は自然に。体験の捏造はしない',
+            '語彙は前回と被らない表現を優先'
           ];
-          return lines.join('\n');
+          if(styleStrength>0){
+            styleNuance.push('語尾・リズムを前回と変える（語尾の重複を避ける）');
+          }
+
+          return [
+            'あなたは猫の詩的つぶやきを書くアシスタントです。',
+            `【ねこ】名前:${name} / 性格:${personality||'不明'} / テリトリー:${territory||'-'}`,
+            `【推定年齢】${ageYears==null?'不明':(ageYears.toFixed(2)+'歳')} / 【漢字比率の目安】${kanjiRatio}%`,
+            `【天気】${weatherKey||'-'} / 【季節・時間ヒント】${(hints.join('、')||'なし')} / 【イベント】${ev||'なし'}`,
+            `【主人のひとこと】${String(note||'(なし)').slice(0,120)} / 呼び方例:${ownerLabel}`,
+            'ルール：',
+            '- 一人称は常に自分の名前「'+name+'」。' ,
+            '- 「にゃ」「にゃん」などは禁止。具体的な年月日・曜日・時刻も禁止（抽象表現のみ）。',
+            '- 誕生日〜6ヶ月はひらがな100%＋赤ちゃん言葉。6〜12ヶ月はひらがな90%（漢字10%）。',
+            '- 1〜2歳はひらがな中心→徐々に漢字を増やし、2歳で通常表記（漢字多め）。',
+            `- 上記に従い、全体の漢字比率は概ね ${kanjiRatio}% を目安に。`,
+            '- 季節・時間帯・天気のニュアンスを必ず入れる（例：明るい夕暮れ、朝焼け、日差し、雪が綿菓子みたい など）。',
+            '- 主人のひとことには **3回に1回** やさしく触れる。' + (hasNeg ? '（今回: ネガティブ検知 → 必ず慰め・心配の一文を入れる）' : ''),
+            '- 事実不明の体験談は書かない。過去や他の猫と似すぎる表現は避ける。',
+            ...styleNuance.map(s => '- ' + s),
+            '出力：1段落のみ。最大'+TWEET_MAX+'文字程度。句読点は自然に。'
+          ].join('\n');
         }
 
         /* ====== メイン ====== */
@@ -357,6 +415,7 @@
           function clearError(){ errBox.style.display='none'; errBox.textContent=''; }
 
           const catId = qs().get('catId') || qs().get('catid');
+          // カレンダーボタンに catId を付ける
           const calLink = document.querySelector('a[href="index_calendar.html"]');
           if (calLink && catId) calLink.href = 'index_calendar.html?catId=' + encodeURIComponent(catId);
 
@@ -367,7 +426,6 @@
           const now=todayJST();
           const bday=toDate(cat.birthYear,cat.birthMonth,cat.birthDay);
 
-          // createdAt フェイルセーフ
           let created = cat.createdAt? new Date(cat.createdAt): null;
           if(!created || isNaN(created.getTime())){
             created = new Date();
@@ -378,12 +436,13 @@
           const assumed=bday || new Date(created.getTime()-182*24*3600*1000);
           const ageYears=yearsBetween(assumed, now);
 
-          // プロフィール表示
           const av=document.getElementById('cat-avatar');
           document.getElementById('cat-name').textContent=cat.name||'ネコ';
           document.getElementById('tw-title').textContent=(cat.name||'ネコ')+'のつぶやき';
+
           const genderLabel = { male: "おとこの子", female: "おんなの子", other: "わからない" };
-          document.getElementById('cat-gender').textContent = "性別: " + (genderLabel[cat.gender] || "わからない");
+          document.getElementById('cat-gender').textContent =
+            "性別: " + (genderLabel[cat.gender] || "わからない");
 
           if(cat.avatar){
             av.innerHTML=''; const im=new Image();
@@ -392,7 +451,9 @@
           } else {
             av.textContent=firstChar(cat.name||'？'); av.style.background=colFor(cat.name||'?');
           }
-          document.getElementById('cat-age').textContent = fmtAgeForProfile(ageYears, bday);
+          const ageEl=document.getElementById('cat-age');
+          ageEl.textContent = renderAgeText(ageYears, !!bday);
+
           document.getElementById('cat-breed').textContent='猫種: '+(cat.breed||'-');
           document.getElementById('cat-personality').textContent='性格: '+(cat.personality||'-');
           document.getElementById('cat-fav').textContent='特徴: '+(cat.favorites||'-');
@@ -404,7 +465,7 @@
           if(!disp){ disp = now.getFullYear()+'年'+(now.getMonth()+1)+'月'+now.getDate()+'日（'+yobi(now.getDay())+'）'; }
           document.getElementById('tw-date').textContent=disp+' '+weatherEmoji(weath);
 
-          /* ====== Snaps 初期化（失敗しても致命傷にしない） ====== */
+          /* ====== Snaps 初期化（フェイルセーフ） ====== */
           let snaps;
           try{
             if (window.Snaps && typeof window.Snaps.init === 'function') {
@@ -415,7 +476,7 @@
           }catch(e){
             console.warn('Snaps init failed:', e && e.message ? e.message : e);
             snaps = { hasSnaps: ()=>false, onChange: ()=>{} };
-            showError('写真機能の読み込みに失敗しました。Ctrl+F5 で再読み込み、直らなければ古い写真を少し整理してください。');
+            showError('写真機能の読み込みに失敗しました。古い写真が多い場合は容量がいっぱいの可能性があります。Ctrl+F5 で再読み込み、直らなければ古い写真を少し整理してください。');
           }
 
           const btnFB=document.getElementById('btn-fb');
@@ -477,51 +538,54 @@
             startLoading();
 
             const others = recentAllTweets(60);
-            const baseCtx = ctxBase();
-            const basePrompt = buildPrompt(baseCtx);
+            const ctx = ctxBase();
 
             try{
               let finalText='';
-              for(let i=0;i<5;i++){
-                const add = i? `\n【追加条件】直前までと**文体を変える**（語彙・リズム・比喩を刷新）。語尾のクセも入れ替える。強度:${i}` : '';
-                const data = await callAIwithRace(basePrompt + add, {maxTokens:240});
-                let draft = String(pickTextFromAI(data)||'').trim();
+              for(let i=0;i<4;i++){
+                const prompt = promptBuilder(ctx, {styleStrength:i});
+                const data = await callAIwithRace(prompt, {maxTokens:240});
+                let draft = sanitize(String(pickTextFromAI(data)||''));
+                if(!/[。！？]$/.test(draft)) draft+='。';
+                draft = dedupeEndings(draft);
 
-                // 終端整形
-                if(draft && !/[。！？]$/.test(draft)) draft+='。';
-
-                // 近似重複を避ける
-                const sim = (a,b)=>{
-                  a=String(a||''); b=String(b||''); if(!a||!b) return 0;
-                  const grams=(s)=>{ const g=new Set(); for(let i=0;i<s.length-1;i++) g.add(s.slice(i,i+2)); return g; };
-                  const A=grams(a), B=grams(b); let inter=0; A.forEach(x=>{ if(B.has(x)) inter++; });
-                  return inter/Math.max(1, A.size + B.size - inter);
-                };
-                const simPrev = prevSaved ? sim(draft, prevSaved) : 0;
-                const simLast = lastGenerated ? sim(draft, lastGenerated) : 0;
-                const simOthers = Math.max(...others.map(o=> sim(draft,o)||0),0);
-
-                // 受理基準
-                if(simPrev<0.50 && simLast<0.50 && simOthers<0.48){
-                  finalText=draft; break;
-                }
+                const simPrev = prevSaved ? similarity(draft, prevSaved) : 0;
+                const simLast = lastGenerated ? similarity(draft, lastGenerated) : 0;
+                const simOthers = Math.max(...others.map(o=> similarity(draft,o)||0),0);
+                if(simPrev<0.50 && simLast<0.50 && simOthers<0.48){ finalText=draft; break; }
               }
 
-              if(!finalText) throw new Error('条件に合う文章が得られませんでした');
+              if(!finalText) throw new Error('条件に合う文案が得られませんでした');
 
               finalText = clamp(finalText, TWEET_MAX);
               saveAndShow(ymd, finalText);
 
             }catch(e){
-              const msg = (e && e.message === 'jsonp_timeout') ? 'AIへの接続が混み合っています。少し待って、もう一度ためしてください。'
-                        : (e && e.message === 'both_timeout') ? '少し時間がかかっています。通信状況を確認して、もう一度ためしてください。'
-                        : ('AI生成に失敗しました。AI（DeepSeek） の設定やネットワークをご確認ください。' + (e && e.message ? '（詳細: ' + e.message + '）' : ''));
-              showErr(msg);
+              let msg = 'AI生成に失敗しました。設定やネットワークをご確認ください。';
+              const detail = e && e.message ? String(e.message) : '';
+
+              if (detail.startsWith('post:')) {
+                if (detail.includes('Insufficient Balance')) {
+                  msg = '残高不足により生成できませんでした（DeepSeek）。チャージをご確認ください。';
+                } else if (detail.includes('HTTP 429')) {
+                  msg = 'リクエスト過多（429）。少し待ってからお試しください。';
+                } else {
+                  msg = 'POST経由の呼び出しに失敗しました。';
+                }
+              } else if (detail === 'jsonp_timeout') {
+                msg = 'AIへの接続が混み合っています（JSONP 30秒タイムアウト）。少し待って、もう一度ためしてください。';
+              } else if (detail === 'jsonp_load_error') {
+                msg = 'JSONPの読み込みに失敗しました。ネットワークや拡張機能の影響をご確認ください。';
+              } else if (detail === 'both_timeout') {
+                msg = '少し時間がかかっています。通信状況を確認して、もう一度ためしてください。';
+              }
+
+              showErr(msg + (detail && !/timeout|load error/.test(detail) ? `（詳細: ${detail}）` : ''));
             }
           }
 
           generate();
-          document.getElementById('btn-regen').addEventListener('click', ()=>{
+          regenBtn.addEventListener('click', ()=>{
             if(regenBtn.classList.contains('disabled')) return;
             generate({forceRegen:true});
           });
