@@ -251,7 +251,7 @@
           return re.test(s);
         }
 
-        /* ====== 文字種比率チェック（出力検証用） ====== */
+        /* ====== 文字種比率チェック ====== */
         function kanjiRatio(text){
           const KANJI=/[一-龯々〆〇ヶ]/g;
           const JP=/[ぁ-んァ-ン一-龯々〆〇ヶ]/g;
@@ -259,11 +259,17 @@
           const kj =(text||'').match(KANJI)||[];
           return all.length? (kj.length/all.length) : 0;
         }
+
+        // ★ ユーザー指定ルール
+        // 0〜0.5歳: 漢字0%（ひらがな100%）
+        // 0.5〜1歳: 漢字10%
+        // 1〜2歳 : 漢字10%→100%へ直線増加
         function targetKanjiRate(age){
           if(age==null) return null;
-          if(age<1) return 0.05; // 5%目安（ごく少数）
-          if(age<2){ const r=Math.min(1,Math.max(0,age-1)); return (20+35*r)/100; } // 1.0→0.20, 2.0→0.55
-          return 0.45; // 2歳以上の参考値（厳密運用はしない）
+          if(age < 0.5) return 0.0;
+          if(age < 1.0) return 0.10;
+          if(age < 2.0) return 0.10 + 0.90*(age - 1.0); // 1.0→0.10, 2.0→1.00
+          return 1.0;
         }
 
         /* ====== DeepSeek（GAS）呼び出し：POST＋JSONP 同時実行 ====== */
@@ -315,19 +321,19 @@
           return (data&&data.candidates&&data.candidates[0]&&data.candidates[0].content&&data.candidates[0].content.parts&&data.candidates[0].content.parts[0]&&data.candidates[0].content.parts[0].text)||'';
         }
 
-        /* ====== 年齢×性格の口調（1〜2歳は段階化／0〜1歳は超ひらがな） ====== */
+        /* ====== 年齢×性格の口調（ユーザー指定に合わせて更新） ====== */
         function buildToneRules(ageYears, persona){
-          const pj = (persona==='energetic'?'元気':persona==='calm'?'おだやか':persona==='clingy'?'甘え':persona==='mypace'?'マイペース':persona==='cool'?'クール':'素直');
+          const pj = personaJp(persona);
           const lines=[];
           if (ageYears==null){
             lines.push('年齢不明：自然でやさしい日本語。');
-          } else if (ageYears<1){
-            lines.push('0〜1歳：ひらがな95%目安。漢字はごく少数（0〜5%）だけ。文は短く、やさしい語彙。');
-          } else if (ageYears<2){
-            const r=Math.min(1,Math.max(0,ageYears-1));
-            const kanji=Math.round(20+35*r), hira=100-kanji;
-            lines.push('1〜2歳（移行期）：ひらがな約'+hira+'%、漢字約'+kanji+'%（目安）。**全ひらがなは禁止**。');
-            lines.push('語感は少しずつ「'+pj+'」寄りに強める。');
+          } else if (ageYears < 0.5){
+            lines.push('出生〜6か月：**ひらがな100%**（漢字は使わない）。**強い赤ちゃん言葉**。文はとても短く。');
+          } else if (ageYears < 1){
+            lines.push('6か月〜1歳：**赤ちゃん言葉を強め**、ひらがな中心。**漢字は約10%**まで。');
+          } else if (ageYears < 2){
+            const pct=Math.round(targetKanjiRate(ageYears)*100);
+            lines.push('1〜2歳：赤ちゃん言葉から性格寄りへ移行。**現在の目安：漢字約'+pct+'%**。**全ひらがなは禁止**。');
           } else {
             lines.push('2歳以上：自然な日本語。性格（'+pj+'）の語感をはっきり。');
           }
@@ -351,6 +357,8 @@
           const mentionOwner = !!(opts && opts.mentionOwner);
           const forceComfort = !!(opts && opts.forceComfort);
           const tone = buildToneRules(ageYears, persona);
+          const tgt = targetKanjiRate(ageYears);
+          const tgtLine = (tgt==null) ? '' : ('【文字種の目安】漢字率: 約'+Math.round(tgt*100)+'%');
 
           const ownerBlock = mentionOwner
               ? '【主人のひとこと】'+(String(note||'(なし)').slice(0,120))+' / 呼び方例:'+ownerLabel
@@ -364,6 +372,7 @@
             '- 出力は1段落のみ。最大'+TWEET_MAX+'文字ていど。句読点は自然に。'
           ];
 
+          // ネガは必ずフォロー
           if (forceComfort) {
             rules.push('- 主人のひとことがネガなら、必ず一度だけやさしくフォローし、安心させる表現を入れる。');
           } else if (mentionOwner) {
@@ -372,13 +381,13 @@
             rules.push('- この回は主人のひとことには触れない。');
           }
 
-          // 1〜2歳の全ひらがな禁止を再強調
-          if (ageYears!=null && ageYears>=1 && ageYears<2){
-            rules.push('- この回は「全ひらがな」を禁止。名詞や一般語には漢字も適度に使うこと。');
-          }
-          // 0〜1歳は漢字ごく少数を強調
-          if (ageYears!=null && ageYears<1){
-            rules.push('- この回は漢字を**ごく少数**（0〜5%）に限定。やさしい語彙で短めの文にすること。');
+          // 年齢帯ごとの厳格指示
+          if (ageYears!=null && ageYears < 0.5){
+            rules.push('- **漢字は使わない（0%）**。とてもやさしい赤ちゃん言葉。文はとても短く。');
+          } else if (ageYears!=null && ageYears < 1){
+            rules.push('- **漢字は約10%**に抑える。赤ちゃん言葉を強める。');
+          } else if (ageYears!=null && ageYears < 2){
+            rules.push('- **全ひらがなは禁止**。指示した漢字率の目安に近づける。');
           }
 
           return [
@@ -388,6 +397,7 @@
             '【天気】'+(weatherKey||'-')+' / 【季節・時間ヒント】'+(hints.join('、')||'なし')+' / 【イベント】'+(ev||'なし'),
             ownerBlock,
             '【口調方針】'+tone,
+            tgtLine,
             'ルール：',
             rules.join('\n')
           ].join('\n');
@@ -435,7 +445,7 @@
             av.textContent=firstChar(cat.name||'？'); av.style.background=colFor(cat.name||'?');
           }
 
-          // ★ 年齢表示：12か月以上は「X歳 Yか月」に統一
+          // 年齢表示：12か月以上は必ず「X歳 Yか月」
           const ageEl=document.getElementById('cat-age');
           if(ageYears!=null){
             const totalMonths = Math.max(0, Math.floor(ageYears*12));
@@ -538,22 +548,29 @@
             const mentionOwner = isNeg || (Math.random() < 0.34);
 
             const tgt = targetKanjiRate(ctx.ageYears);
-            const marginLow = 0.07;   // 許容下振れ
-            const marginHigh = 0.12;  // 許容上振れ
+            // 許容幅（%ポイント）
+            const mSmall = 0.04;  // ±4pp（幼い帯は厳しめ）
+            const mMed   = 0.10;  // ±10pp（1〜2歳帯は広め）
             let finalText='';
             let enforceLevel=0;
 
             try{
               for(let i=0;i<6;i++){
                 let prompt = promptBuilder(ctx, { mentionOwner, forceComfort: isNeg });
+
+                // 強化指示（必要時）
                 if (enforceLevel>0){
-                  if (ctx.ageYears!=null && ctx.ageYears<1){
-                    prompt += '\n【制約強化】0〜1歳です。漢字は**ごく少数（0〜5%）**だけにし、それ以外はひらがなでやさしく、短い文で書いてください。';
-                  } else if (ctx.ageYears!=null && ctx.ageYears<2){
+                  if (ctx.ageYears!=null && ctx.ageYears < 0.5){
+                    prompt += '\n【制約強化】出生〜6か月です。**漢字は使わない（0%）**で書いてください。やさしい赤ちゃん言葉、短い文だけ。';
+                  } else if (ctx.ageYears!=null && ctx.ageYears < 1){
+                    prompt += '\n【制約強化】6か月〜1歳です。**漢字は約10%**に抑えてください。赤ちゃん言葉を強く。';
+                  } else if (ctx.ageYears!=null && ctx.ageYears < 2){
                     const pct = Math.round(tgt*100);
-                    prompt += '\n【制約強化】1〜2歳の移行期です。**全ひらがなは禁止**。漢字は全体の約'+pct+'%（±7%）になるようにしてください。';
+                    prompt += '\n【制約強化】1〜2歳の移行期です。**全ひらがなは禁止**。**漢字は全体の約'+pct+'%（±10%）**になるように。';
                   }
                 }
+
+                // 言い換え強度
                 if (i>0){
                   prompt += '\n【追加条件】前回と似た言い回しは避け、新しい語彙で書き直してください（強度:'+i+'）。';
                 }
@@ -568,13 +585,15 @@
                 const simLast = lastGenerated ? similarity(draft, lastGenerated) : 0;
                 const simOthers = Math.max(...others.map(o=> similarity(draft,o)||0),0);
 
-                // 年齢に応じた漢字率チェック
+                // 文字種チェック
                 const kr = kanjiRatio(draft);
                 let ratioOk = true;
-                if (ctx.ageYears!=null && ctx.ageYears<1){
-                  ratioOk = (kr <= 0.07); // 7%以下
-                } else if (ctx.ageYears!=null && ctx.ageYears<2){
-                  ratioOk = (kr >= (tgt - marginLow)) && (kr <= (tgt + marginHigh));
+                if (ctx.ageYears!=null && ctx.ageYears < 0.5){
+                  ratioOk = (kr === 0); // 完全0%
+                } else if (ctx.ageYears!=null && ctx.ageYears < 1){
+                  ratioOk = (kr >= 0.10 - mSmall) && (kr <= 0.10 + mSmall); // 10%±4pp
+                } else if (ctx.ageYears!=null && ctx.ageYears < 2){
+                  ratioOk = (kr >= Math.max(0, tgt - mMed)) && (kr <= Math.min(1, tgt + mMed)); // 目安±10pp
                 }
 
                 if(simPrev<0.50 && simLast<0.50 && simOthers<0.48 && ratioOk){
