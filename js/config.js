@@ -11,7 +11,7 @@
   const ENVS = {
     dev: {
       NAME: "dev",
-      API_BASE_URL: "",            // 手元でテストする場合があれば入れてください（未使用なら空でOK）
+      API_BASE_URL: "https://script.google.com/macros/s/AKfycbxdeol8qw53KTQtUMz1DqvGZjSqmszXOb5VqKQS0-LqAsMoPRycT026N7G_21qM9cCD/exec",            // 手元でテストする場合があれば入れてください（未使用なら空でOK）
       TIMEOUT_MS: 15000,
       FEATURE_FLAGS: { diaryAutoSave: true },
       STORAGE_NS: UNIFIED_NS,
