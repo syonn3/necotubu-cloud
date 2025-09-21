@@ -80,7 +80,7 @@
           </div>
           <button id="btn-regen" class="btn">もう１回聴く</button>
         </div>
-        <p id="tw-loading" class="hint">つぶやきに聞き耳を立てています‥</p>
+        <p id="tw-loading" class="hint">つぶやきに聞き耳を立てています‥（最大20秒）</p>
         <div id="tw-body" class="tw" style="display:none"></div>
         <div id="tw-error" class="error-box"></div>
       </section>
@@ -237,101 +237,91 @@
           return '';
         }
 
-        /* ====== DeepSeek を GAS 経由で呼ぶ（POST→GET→JSONP フェイルオーバー） ====== */
+        /* ====== DeepSeek（GAS）呼び出し：POST＋JSONP 同時実行 ====== */
+        function getApiBase(){
+          const base = (window.APP_CONFIG && window.APP_CONFIG.API_BASE_URL) || '';
+          if(!base) throw new Error('AI API の接続先が未設定です（config.js の API_BASE_URL を確認）');
+          return base.replace(/\/+$/,'') + '/exec';
+        }
         function getGeminiModel(){
           const cfg = window.APP_CONFIG || {};
           return cfg.GEMINI_MODEL || cfg.MODEL || 'deepseek-chat';
         }
+        function getTemp(){ return (window.APP_CONFIG && window.APP_CONFIG.GEMINI && window.APP_CONFIG.GEMINI.TEMPERATURE) || 0.9; }
 
-        // JSONPユーティリティ
-        function jsonp(url, params={}, timeoutMs=10000){
+        // JSONP（20秒タイムアウト）
+        function callJsonp(apiBase, prompt, {model, temperature, maxTokens}){
           return new Promise((resolve, reject)=>{
-            const cbName = '__NT_JSONP_cb_' + Date.now() + '_' + Math.floor(Math.random()*1e6);
-            const q = new URLSearchParams({ ...params, callback: cbName });
-            const s = document.createElement('script');
-            const timer = setTimeout(()=>{
-              cleanup(); reject(new Error('JSONP timeout'));
-            }, timeoutMs);
+            const cbName = 'NT_JSONP_CB_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+            const url = apiBase + '?action=ai'
+              + '&model=' + encodeURIComponent(model)
+              + (typeof temperature==='number' ? '&temperature=' + encodeURIComponent(temperature) : '')
+              + (typeof maxTokens==='number' ? '&maxTokens=' + encodeURIComponent(maxTokens) : '')
+              + '&prompt=' + encodeURIComponent(prompt)
+              + '&callback=' + encodeURIComponent(cbName);
 
-            function cleanup(){
+            let settled = false;
+            const s = document.createElement('script');
+            const cleanup = ()=>{ try{ delete window[cbName]; }catch{}; if(s.parentNode) s.parentNode.removeChild(s); };
+
+            const timer = setTimeout(()=>{
+              if(!settled){ settled=true; cleanup(); reject(new Error('jsonp_timeout')); }
+            }, 20000); // 20秒
+
+            window[cbName] = (data)=>{
+              if(settled) return;
+              settled = true;
               clearTimeout(timer);
-              try{ delete window[cbName]; }catch(_){ window[cbName]=undefined; }
-              if(s.parentNode) s.parentNode.removeChild(s);
-            }
-            window[cbName] = function(data){ cleanup(); resolve(data); };
-            s.src = url + '?' + q.toString();
-            s.onerror = function(){ cleanup(); reject(new Error('JSONP load error')); };
+              cleanup();
+              resolve(data);
+            };
+
+            s.src = url;
+            s.onerror = ()=>{ if(!settled){ settled=true; clearTimeout(timer); cleanup(); reject(new Error('jsonp_load_error')); } };
             document.head.appendChild(s);
           });
         }
 
-        async function callGeminiStrict(prompt, {maxTokens=240, retries=4}={}){
-          const apiBase = (window.APP_CONFIG && window.APP_CONFIG.API_BASE_URL) || '';
-          if(!apiBase) throw new Error('AI API の接続先が未設定です（config.js の API_BASE_URL を確認）');
-          const model = getGeminiModel();
-
+        // POST（GASは内部で鍵保持）
+        async function callPost(apiBase, prompt, {model, temperature, maxTokens}){
           const body = {
             model,
             contents: [{ role: "user", parts: [{ text: String(prompt||'') }]}],
-            temperature: (window.APP_CONFIG && window.APP_CONFIG.GEMINI && window.APP_CONFIG.GEMINI.TEMPERATURE) || 0.9,
-            maxTokens
+            temperature, maxTokens
           };
+          const res = await fetch(apiBase, {
+            method:"POST",
+            headers:{ "Content-Type":"application/json" },
+            body: JSON.stringify(body)
+          });
+          const data = await res.json().catch(()=> ({}));
+          if(!res.ok || data.error){ throw new Error((data && data.error && data.error.message) || ('HTTP '+res.status)); }
+          return data;
+        }
 
-          let lastErr=null;
-          for(let i=0;i<retries;i++){
-            try{
-              const res = await fetch(apiBase, {
-                method:"POST",
-                headers:{ "Content-Type":"text/plain" },
-                body: JSON.stringify(body)
-              });
-              const data = await res.json().catch(()=> ({}));
-              if(!res.ok || (data && data.error)){
-                const msg = (data && data.error && data.error.message) ? data.error.message : `HTTP ${res.status}`;
-                throw new Error(msg);
-              }
-              const text = (data?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
-              if(!text) throw new Error('AI応答が空でした');
-              return text;
-            }catch(e1){
-              lastErr=e1;
-              try{
-                const q = new URLSearchParams({
-                  action: 'ai',
-                  model: model,
-                  temperature: String((window.APP_CONFIG && window.APP_CONFIG.GEMINI && window.APP_CONFIG.GEMINI.TEMPERATURE) || 0.9),
-                  maxTokens: String(maxTokens),
-                  prompt: String(prompt||'')
-                });
-                const res2 = await fetch(apiBase + '?' + q.toString(), { method: 'GET' });
-                const data2 = await res2.json().catch(()=> ({}));
-                if(res2.ok && !(data2 && data2.error)){
-                  const text2 = (data2?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
-                  if(text2) return text2;
-                  throw new Error('GET empty');
-                }
-                throw new Error((data2 && data2.error && data2.error.message) || 'GET failed');
-              }catch(e2){
-                lastErr=e2;
-                try{
-                  const data3 = await jsonp(apiBase, {
-                    action: 'ai',
-                    model: model,
-                    temperature: String((window.APP_CONFIG && window.APP_CONFIG.GEMINI && window.APP_CONFIG.GEMINI.TEMPERATURE) || 0.9),
-                    maxTokens: String(maxTokens),
-                    prompt: String(prompt||'')
-                  }, 12000);
-                  const text3 = (data3?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
-                  if(text3) return text3;
-                  throw new Error('JSONP empty');
-                }catch(e3){
-                  lastErr=e3;
-                }
-              }
-              await new Promise(r=> setTimeout(r, 250*(i+1)));
-            }
-          }
-          throw lastErr || new Error('AIに到達できませんでした');
+        // 同時に走らせて「先に成功した方」を採用
+        function callAIwithRace(prompt, {maxTokens=240}={}){
+          const apiBase = getApiBase();
+          const model = getGeminiModel();
+          const temperature = getTemp();
+
+          return new Promise((resolve, reject)=>{
+            let done=false;
+
+            const onOk = (data)=>{ if(done) return; done=true; resolve(data); };
+            const onNg = ()=>{ /* 片方が失敗してももう片方の結果を待つ */ };
+
+            callPost(apiBase, prompt, {model, temperature, maxTokens}).then(onOk).catch(onNg);
+            callJsonp(apiBase, prompt, {model, temperature, maxTokens}).then(onOk).catch(onNg);
+
+            // 最終保険（22秒で両方ダメなら諦める）
+            setTimeout(()=>{ if(!done) reject(new Error('both_timeout')); }, 22000);
+          });
+        }
+
+        function pickTextFromAI(data){
+          // 期待形：{candidates:[{content:{parts:[{text:"..."}]}}]}
+          return (data && data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0] && data.candidates[0].content.parts[0].text) || '';
         }
 
         function promptBuilder(ctx){
@@ -367,6 +357,7 @@
           function clearError(){ errBox.style.display='none'; errBox.textContent=''; }
 
           const catId = qs().get('catId') || qs().get('catid');
+          // カレンダーボタンに catId を付ける
           const calLink = document.querySelector('a[href="index_calendar.html"]');
           if (calLink && catId) calLink.href = 'index_calendar.html?catId=' + encodeURIComponent(catId);
 
@@ -434,9 +425,7 @@
           }catch(e){
             console.warn('Snaps init failed:', e && e.message ? e.message : e);
             snaps = { hasSnaps: ()=>false, onChange: ()=>{} };
-            const box=document.getElementById('tw-error');
-            box.textContent='写真機能の読み込みに失敗しました。古い写真が多い場合は容量がいっぱいの可能性があります。Ctrl+F5 で再読み込み、直らなければ古い写真を少し整理してください。';
-            box.style.display='block';
+            showError('写真機能の読み込みに失敗しました。古い写真が多い場合は容量がいっぱいの可能性があります。Ctrl+F5 で再読み込み、直らなければ古い写真を少し整理してください。');
           }
 
           const btnFB=document.getElementById('btn-fb');
@@ -505,8 +494,9 @@
               let finalText='';
               for(let i=0;i<4;i++){
                 const add = i? '\n【追加条件】前回までと似た言い回しを避け、新しい語彙で書き直してください（強度:'+i+'）。' : '';
-                let draft = await callGeminiStrict(basePrompt + add, {maxTokens:240, retries:4});
-                draft = sanitize(String(draft||''));
+                // ★ POST＋JSONP の「同時実行」で、先に来た方を採用（JSONPは最大20秒待ち）
+                const data = await callAIwithRace(basePrompt + add, {maxTokens:240});
+                let draft = sanitize(String(pickTextFromAI(data)||''));
                 if(!/[。！？]$/.test(draft)) draft+='。';
                 draft = dedupeEndings(draft);
 
@@ -522,7 +512,10 @@
               saveAndShow(ymd, finalText);
 
             }catch(e){
-              showErr('AI生成に失敗しました。設定やネットワークをご確認ください。' + (e && e.message ? '（詳細: ' + e.message + '）' : ''));
+              const msg = (e && e.message === 'jsonp_timeout') ? 'AIへの接続が混み合っています。少し待って、もう一度ためしてください。'
+                        : (e && e.message === 'both_timeout') ? '少し時間がかかっています。通信状況を確認して、もう一度ためしてください。'
+                        : ('AI生成に失敗しました。Geminiの設定やネットワークをご確認ください。' + (e && e.message ? '（詳細: ' + e.message + '）' : ''));
+              showErr(msg);
             }
           }
 
