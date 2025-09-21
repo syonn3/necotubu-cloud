@@ -3,7 +3,7 @@
   const UNIFIED_NS = "necotubu_v1"; // 写真やデータを環境間で共通化
 
   // ★ ここにあなたの GAS Web アプリ URL を入れてください（例: https://script.google.com/macros/s/XXXX/exec ）
-  const GAS_PROXY_URL = "https://script.google.com/macros/s/AKfycbz38pS9Mroh1Cr2bZMMzJMpQZUvXzeoOwvN3uaA2Y8KMxydmsD5hr2Y0SECapJvhyk7/exec";
+  const GAS_PROXY_URL = "https://script.google.com/macros/s/AKfycbyhPOO5mLoVXMV1Zgds9MfFVkaWZ3SUFy-_ER690RTlUNHRnUHh9gQX3LIAkJrGIa0h/exec";
 
   // ★ ダミー値（画面側のキー一必ずガスを通すため）。実際の鍵は GAS 側にあります
   const DEFAULT_GEMINI_API_KEY = "via-gas";
