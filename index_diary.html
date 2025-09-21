@@ -191,6 +191,14 @@
           if(/ツン|クール|気高|孤高/.test(s)) return 'cool';
           return 'neutral';
         }
+        function personaJp(persona){
+          return persona==='energetic'?'元気'
+               : persona==='calm'?'おだやか'
+               : persona==='clingy'?'甘え'
+               : persona==='mypace'?'マイペース'
+               : persona==='cool'?'クール'
+               : '素直';
+        }
         function ownerNameByPersona(gender, persona, territory){
           if(String(territory||'').toLowerCase()==='stray'){
             if(gender==='male') return 'おじちゃん';
@@ -307,39 +315,33 @@
           return (data && data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0] && data.candidates[0].content.parts[0].text) || '';
         }
 
-        /* ====== 性格・年齢の口調方針をプロンプトに組み立てる ====== */
+        /* ====== 年齢×性格の口調方針をプロンプトに組み立てる（1〜2歳を厳密に段階化） ====== */
         function buildToneRules(ageYears, persona){
           const lines = [];
+          const pj = personaJp(persona);
 
-          // 年齢での書き方
-          if (ageYears != null && ageYears < 1) {
-            lines.push('ひらがな中心（約90%）、漢字はごく少なめ。文は短く。幼い語感。');
-          } else if (ageYears != null && ageYears < 2) {
-            lines.push('ひらがな多め、漢字は2割ほど。少し幼い語感。');
+          if (ageYears == null) {
+            lines.push('年齢不明：自然でやさしい日本語。');
+          } else if (ageYears < 1) {
+            lines.push('0〜1歳：ひらがな中心（約90%）、漢字はごく少なめ。文は短く、幼い語感。');
+          } else if (ageYears < 2) {
+            // 1.0〜2.0 の間で、漢字率を 20% → 55% に直線的に増やす
+            const r = Math.min(1, Math.max(0, ageYears - 1)); // 0..1
+            const kanji = Math.round(20 + 35 * r);            // 20%..55%
+            const hira  = 100 - kanji;
+            lines.push('1〜2歳（移行期）：ひらがな約'+hira+'%、漢字約'+kanji+'%（目安）。');
+            lines.push('語感はすこしずつ「'+pj+'」寄りに強める。早口・装飾はやりすぎない。');
           } else {
-            lines.push('自然な大人びた日本語。');
+            lines.push('2歳以上：自然な日本語。性格（'+pj+'）の語感をはっきり。');
           }
 
-          // 性格での口調
-          switch (persona) {
-            case 'energetic':
-              lines.push('元気で明るい。短めの文をテンポよく。「！」は少し多め。体の動きを少し描く。');
-              break;
-            case 'calm':
-              lines.push('やわらかく、ていねい。落ち着いた語感。比喩はやさしめ。');
-              break;
-            case 'clingy':
-              lines.push('呼びかけが少し多い。甘えた雰囲気。安心を求める感じ。');
-              break;
-            case 'mypace':
-              lines.push('のんびり。間（…）をときどき使って、ふわっとした言い回し。');
-              break;
-            case 'cool':
-              lines.push('端的に言い切る。感嘆符は控えめ。少し距離のある語感。');
-              break;
-            default:
-              lines.push('素直で自然。');
-          }
+          // 性格ニュアンス（テンプレ文は使わず、指示だけ）
+          if (persona==='energetic')  lines.push('テンポよく・明るく。短めの文＋必要に応じて軽い感嘆符。体の動きを少しだけ描く。');
+          if (persona==='calm')       lines.push('やわらか・ていねい。落ち着いた語感。やさしい比喩。');
+          if (persona==='clingy')     lines.push('呼びかけを少し増やし、安心を求めるニュアンス。');
+          if (persona==='mypace')     lines.push('のんびり。ときどき「…」で間をとる。');
+          if (persona==='cool')       lines.push('端的に言い切る。感嘆符は控えめ。やや距離のある語感。');
+
           return lines.join(' / ');
         }
 
@@ -369,7 +371,6 @@
             '- 出力は1段落のみ。最大'+TWEET_MAX+'文字ていど。句読点は自然に。'
           ];
 
-          // ひとことの扱い
           if (forceComfort) {
             rules.push('- 主人のひとことがネガなら、必ず一度だけやさしくフォローし、安心させる表現を入れる。責めない・重くしない。');
           } else if (mentionOwner) {
