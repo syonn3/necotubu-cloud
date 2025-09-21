@@ -237,31 +237,30 @@
           return '';
         }
 
-        /* ====== DeepSeek を GAS 経由で呼ぶ（リトライ付） ====== */
+        /* ====== DeepSeek を GAS 経由で呼ぶ（POST→失敗時GET） ====== */
         function getGeminiModel(){
           const cfg = window.APP_CONFIG || {};
-          // モデル名は config で上書き可能。未設定時は deepseek-chat を使う
           return cfg.GEMINI_MODEL || cfg.MODEL || 'deepseek-chat';
         }
-        // GAS（APP_CONFIG.API_BASE_URL）へ text/plain で投げる（CORS回避）
         async function callGeminiStrict(prompt, {maxTokens=240, retries=4}={}){
           const apiBase = (window.APP_CONFIG && window.APP_CONFIG.API_BASE_URL) || '';
           if(!apiBase) throw new Error('AI API の接続先が未設定です（config.js の API_BASE_URL を確認）');
           const model = getGeminiModel();
 
           const body = {
-            model: model,
+            model,
             contents: [{ role: "user", parts: [{ text: String(prompt||'') }]}],
             temperature: (window.APP_CONFIG && window.APP_CONFIG.GEMINI && window.APP_CONFIG.GEMINI.TEMPERATURE) || 0.9,
-            maxTokens: maxTokens
+            maxTokens
           };
 
           let lastErr=null;
           for(let i=0;i<retries;i++){
+            // 1) まず POST（text/plain）
             try{
               const res = await fetch(apiBase, {
                 method:"POST",
-                headers:{ "Content-Type":"text/plain" }, // ← ここを text/plain にして事前確認を回避
+                headers:{ "Content-Type":"text/plain" },
                 body: JSON.stringify(body)
               });
               const data = await res.json().catch(()=> ({}));
@@ -274,6 +273,22 @@
               return text;
             }catch(e){
               lastErr=e;
+              // 2) 失敗したら 1回だけ GET で取り直す
+              try{
+                const q = new URLSearchParams({
+                  action: 'ai',
+                  model: model,
+                  temperature: String((window.APP_CONFIG && window.APP_CONFIG.GEMINI && window.APP_CONFIG.GEMINI.TEMPERATURE) || 0.9),
+                  maxTokens: String(maxTokens),
+                  prompt: String(prompt||'')
+                });
+                const res2 = await fetch(apiBase + '?' + q.toString(), { method: 'GET' });
+                const data2 = await res2.json().catch(()=> ({}));
+                if(res2.ok && !(data2 && data2.error)){
+                  const text2 = (data2?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
+                  if(text2) return text2;
+                }
+              }catch(e2){ lastErr=e2; }
               await new Promise(r=> setTimeout(r, 250*(i+1)));
             }
           }
@@ -313,7 +328,6 @@
           function clearError(){ errBox.style.display='none'; errBox.textContent=''; }
 
           const catId = qs().get('catId') || qs().get('catid');
-          // カレンダーボタンに catId を付ける
           const calLink = document.querySelector('a[href="index_calendar.html"]');
           if (calLink && catId) calLink.href = 'index_calendar.html?catId=' + encodeURIComponent(catId);
 
