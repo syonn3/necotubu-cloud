@@ -213,7 +213,7 @@
           if(wday===0) hints.push('週末のしずけさ');
           if(hour>=16 && hour<=18){
             if(month>=6 && month<=8) hints.push('明るい夕暮れ');
-            if(month===12 ||月<=2) hints.push('夕暮れが早い');
+            if(month===12 || month<=2) hints.push('夕暮れが早い');
           }
           if(hour>=5 && hour<=7 && month>=3 && month<=5) hints.push('朝焼けがきれい');
           if(hour>=11&&hour<=14){
@@ -279,7 +279,6 @@
 
           let lastErr=null;
           for(let i=0;i<retries;i++){
-            // 1) まず POST（text/plain）
             try{
               const res = await fetch(apiBase, {
                 method:"POST",
@@ -296,7 +295,6 @@
               return text;
             }catch(e1){
               lastErr=e1;
-              // 2) GET（JSON）
               try{
                 const q = new URLSearchParams({
                   action: 'ai',
@@ -315,7 +313,6 @@
                 throw new Error((data2 && data2.error && data2.error.message) || 'GET failed');
               }catch(e2){
                 lastErr=e2;
-                // 3) JSONP（CORS完全回避）
                 try{
                   const data3 = await jsonp(apiBase, {
                     action: 'ai',
@@ -395,8 +392,8 @@
           document.getElementById('tw-title').textContent=(cat.name||'ネコ')+'のつぶやき';
 
           const genderLabel = { male: "おとこの子", female: "おんなの子", other: "わからない" };
-document.getElementById('cat-gender').textContent =
-  "性別: " + (genderLabel[cat.gender] || "わからない");
+          document.getElementById('cat-gender').textContent =
+            "性別: " + (genderLabel[cat.gender] || "わからない");
 
           if(cat.avatar){
             av.innerHTML=''; const im=new Image();
