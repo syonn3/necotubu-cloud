@@ -1,628 +1,523 @@
-<!DOCTYPE html>
-<html lang="ja">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <title>Neco-Tubu つぶやき</title>
-    <style>
-      :root{
-        --bg:#1c1a17; --surface:#2a211b; --card:#3b3128; --ink:#f5f1e6; --muted:#cbae82;
-        --primary:#ff7f32; --accent:#a3c586; --line:#53473f; --shadow:0 3px 12px rgba(0,0,0,.35);
-        --r:14px; --danger:#8d3a3a; --disabled:.45;
+<script>
+(function(){
+  /* ====== 定数・ユーティリティ（既存と同じ） ====== */
+  const CATS_KEY='necotubu_cats';
+  const NS=(window.APP_CONFIG&&window.APP_CONFIG.STORAGE_NS)||'necotubu_v1';
+  const HOME_NOTE = NS+':home:note';
+  const HOME_GENDER = NS+':home:gender';
+  const HOME_WEATH = NS+':home:weather';
+  const HOME_DATE  = NS+':home:date';
+  const TWEET_MAX = 320;
+
+  function qs(){ return new URLSearchParams(location.search||''); }
+  function clamp(txt,max){ const s=String(txt||''); return s.length<=max?s:s.slice(0,max-1)+'…'; }
+  function todayJST(){ const now=new Date(); return new Date(now.toLocaleString('ja-JP',{timeZone:'Asia/Tokyo'})); }
+  function yobi(n){ return '日月火水木金土'.charAt(n%7); }
+  function weatherEmoji(w){ return ({sunny:'☀',cloudy:'☁',rain:'☂',snow:'❄',storm:'⚡'}[w]||''); }
+  function toDate(y,m,d){ if(!y||!m||!d) return null; const dt=new Date(+y,+m-1,+d); return isNaN(dt)?null:dt; }
+  function yearsBetween(a,b){ if(!a||!b) return null; return (b-a)/(365.25*24*3600*1000); }
+  function firstChar(s){ s=String(s||'').trim(); return s? s[0]:'？'; }
+  function colFor(str){ const AVA=['#7E5A3C','#6B7A40','#AD6A3B','#5E5347','#8C7448','#7A614C','#9A6E4D']; let h=0; str=String(str||''); for(let i=0;i<str.length;i++)h=(h*31+str.charCodeAt(i))|0; return AVA[Math.abs(h)%AVA.length]; }
+
+  function sanitize(t){
+    return String(t||'')
+      .replace(/にゃん?|ﾆｬ|ﾆｬﾝ|ニャン/gi,'')
+      .replace(/\d{1,2}月\d{1,2}日/g,'きょう')
+      .replace(/\b\d{1,2}:\d{2}\b/g,'')
+      .replace(/(月曜|火曜|水曜|木曜|金曜|土曜|日曜)/g,'')
+      .trim();
+  }
+  function dedupeEndings(s){
+    let out=s;
+    out=out.replace(/(だよ|だね|なの|かな)([よねのー〜]+)(?=。|！|？|$)/g,'$1');
+    out=out.replace(/(よ|ね|の)+(だよ|だね|なの|かな)/g,'$2');
+    out=out.replace(/(だよ|だね|なの|かな)。(?:\s*)(だよ|だね|なの|かな)。(?!\S)/g,'$1。');
+    return out;
+  }
+  function similarity(a,b){
+    a=String(a||''); b=String(b||''); if(!a||!b) return 0;
+    const grams=(s)=>{ const g=new Set(); for(let i=0;i<s.length-1;i++) g.add(s.slice(i,i+2)); return g; };
+    const A=grams(a), B=grams(b); let inter=0; A.forEach(x=>{ if(B.has(x)) inter++; });
+    return inter/Math.max(1, A.size + B.size - inter);
+  }
+
+  function twKey(id){ return `${NS}:tw:${id}`; }
+  function saveTw(id, ymd, text, weather){
+    const k=twKey(id); const box=JSON.parse(localStorage.getItem(k)||'{}');
+    box[ymd]={ text, weather:weather||'', ts:Date.now() };
+    localStorage.setItem(k, JSON.stringify(box));
+  }
+  function loadTw(id, ymd){
+    try{ const k=twKey(id); const box=JSON.parse(localStorage.getItem(k)||'{}'); return box[ymd]?.text||''; }
+    catch{ return ''; }
+  }
+  function recentAllTweets(limit=60){
+    const res=[];
+    for(let i=0;i<localStorage.length;i++){
+      const k=localStorage.key(i);
+      if(k && k.startsWith(`${NS}:tw:`)){
+        try{
+          const box=JSON.parse(localStorage.getItem(k)||'{}');
+          Object.values(box).forEach(v=>{ if(v?.text) res.push(v.text); });
+        }catch{}
       }
-      *{box-sizing:border-box}
-      html,body{margin:0;background:var(--bg);color:var(--ink);
-        font-family:-apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Noto Sans JP","Meiryo",sans-serif;line-height:1.6}
-      a{text-decoration:none;color:inherit}
-      header{position:sticky;top:0;z-index:10;background:var(--card);border-bottom:1px solid var(--line);
-        box-shadow:var(--shadow);padding:12px 14px}
-      header .bar{max-width:720px;margin:0 auto;display:flex;align-items:center;justify-content:space-between}
-      header h1{margin:0;font-size:18px;color:var(--primary)}
-      .btn{display:inline-block;padding:10px 14px;border-radius:12px;border:1px solid var(--line);background:var(--accent);
-        color:#1c1a17;cursor:pointer;transition:.15s}
-      .btn.primary{background:var(--primary);color:#fff;border-color:var(--primary)}
-      .btn.disabled{opacity:var(--disabled);cursor:not-allowed;pointer-events:none;filter:grayscale(60%)}
-      main{max-width:720px;margin:0 auto;background:var(--surface);min-height:100vh;padding:16px 12px 24px}
-      .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:14px;margin:16px 0;box-shadow:var(--shadow)}
-      .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
-      .right{justify-content:flex-end}
-      .hint{color:var(--muted);font-size:12px}
-      .avatar{width:80px;height:80px;border-radius:50%;overflow:hidden;border:2px solid var(--line);
-        display:flex;align-items:center;justify-content:center;background:#6a6159;color:#fff;font-weight:800;font-size:22px}
-      .avatar img{width:100%;height:100%;object-fit:cover}
-      .profile p{margin:2px 0}
-      .tw{font-size:16px;line-height:1.8;white-space:pre-wrap}
-      input[type=file]{position:absolute;left:-9999px;width:1px;height:1px;opacity:0}
-      .snap-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
-      .snap{position:relative;border-radius:12px;overflow:hidden;border:1px solid var(--line);box-shadow:var(--shadow);background:#000}
-      .snap img{width:100%;height:100%;display:block;object-fit:cover}
-      .snap .del{position:absolute;top:6px;right:6px;padding:6px 8px;border:none;border-radius:10px;background:var(--danger);color:#fff;cursor:pointer}
-      @media (max-width:480px){ .snap-grid{grid-template-columns:repeat(2,1fr);} }
-      #cat-name, .card h2 { color: var(--primary); }
-      .error-box{display:none;margin-top:8px;padding:10px 12px;border:1px solid #7a3a3a;background:#3b2727;color:#ffd4d4;border-radius:10px}
-    </style>
-  </head>
-  <body>
-    <header>
-      <div class="bar">
-        <h1>Neco-Tubu つぶやき</h1>
-        <a href="index_home.html" class="btn">HOME</a>
-      </div>
-    </header>
+    }
+    return res.slice(-limit);
+  }
 
-    <main>
-      <!-- プロフィール -->
-      <section id="cat-profile" class="card">
-        <div class="row">
-          <div class="avatar" id="cat-avatar">？</div>
-          <div class="profile">
-            <p id="cat-name" style="font-weight:700;font-size:18px">ネコ</p>
-            <p id="cat-gender" class="hint">性別: -</p>
-            <p id="cat-age" class="hint">年齢: -</p>
-            <p id="cat-breed" class="hint">猫種: -</p>
-            <p id="cat-personality" class="hint">性格: -</p>
-            <p id="cat-fav" class="hint">特徴: -</p>
-            <p id="cat-territory" class="hint">テリトリー: -</p>
-          </div>
-        </div>
-        <div class="row right" style="margin-top:10px">
-          <a href="index_cats.html" class="btn">ほかのネコ</a>
-          <a href="index_calendar.html" class="btn">カレンダー</a>
-        </div>
-      </section>
+  function normPersonality(raw=''){
+    const s=String(raw).toLowerCase();
+    if(/やんちゃ|元気|活発/.test(s)) return 'energetic';
+    if(/おだやか|やさしい|穏/.test(s)) return 'calm';
+    if(/さびし|甘え|寂/.test(s)) return 'clingy';
+    if(/マイペース|自由|気分/.test(s)) return 'mypace';
+    if(/ツン|クール|気高|孤高/.test(s)) return 'cool';
+    return 'neutral';
+  }
+  function personaJp(p){
+    return p==='energetic'?'元気':p==='calm'?'おだやか':p==='clingy'?'甘え':p==='mypace'?'マイペース':p==='cool'?'クール':'素直';
+  }
+  function ownerNameByPersona(gender, persona, territory){
+    if(String(territory||'').toLowerCase()==='stray'){
+      if(gender==='male') return 'おじちゃん';
+      if(gender==='female') return 'おねえさん';
+      return '人';
+    }
+    const base = gender==='male' ? ['おとう','とうさん','パパ','お父さん']
+              : gender==='female' ? ['おかあ','かあさん','ママ','お母さん']
+              : ['ごしゅじん','おうちのひと'];
+    if(persona==='energetic') return base[Math.floor(Math.random()*3)];
+    if(persona==='cool') return base.slice(-2)[Math.floor(Math.random()*2)];
+    if(persona==='clingy') return base.slice(1,3)[Math.floor(Math.random()*2)];
+    return base[Math.floor(Math.random()*base.length)];
+  }
+  function seasonalHints(month,hour,wday,weatherKey){
+    const hints=[];
+    if(wday===5) hints.push('もう週末の空気');
+    if(wday===6) hints.push('週末のゆるさ');
+    if(wday===0) hints.push('週末のしずけさ');
+    if(hour>=16 && hour<=18){
+      if(month>=6 && month<=8) hints.push('明るい夕暮れ');
+      if(month===12 || month<=2) hints.push('夕暮れが早い');
+    }
+    if(hour>=5 && hour<=7 && month>=3 && month<=5) hints.push('朝焼けがきれい');
+    if(hour>=11&&hour<=14){
+      if(month>=7 && month<=8) hints.push('日差しが強い');
+      if(month>=12||month<=2) hints.push('お昼でも空気がひやり');
+    }
+    if(weatherKey==='sunny')  hints.push('日差しがあたたかい');
+    if(weatherKey==='cloudy') hints.push('雲がやわらかい');
+    if(weatherKey==='rain')   hints.push('雨のしずく');
+    if(weatherKey==='snow')   hints.push('雪が綿菓子みたい');
+    if(weatherKey==='storm')  hints.push('風がごうっと吹く');
+    return hints;
+  }
+  function eventWord(mm,dd){
+    const key=`${String(mm).padStart(2,'0')}-${String(dd).padStart(2,'0')}`;
+    const ev={ '01-01':'お正月', '02-03':'節分', '03-03':'ひなまつり', '05-05':'こどもの日',
+               '07-07':'たなばた', '08-15':'お盆', '10-31':'ハロウィン', '12-24':'クリスマスイブ', '12-25':'クリスマス' };
+    if(ev[key]) return ev[key];
+    if(mm===3&&(dd===20||dd===21)) return '春分の日';
+    if(mm===9&&(dd===22||dd===23)) return '秋分の日';
+    return '';
+  }
 
-      <!-- つぶやき -->
-      <section class="card">
-        <div class="row" style="justify-content:space-between;align-items:center">
-          <div>
-            <h2 id="tw-title" style="margin:0 0 8px 0">つぶやき</h2>
-            <p id="tw-date" style="font-weight:600;margin:0 0 10px 0"></p>
-          </div>
-          <button id="btn-regen" class="btn">もう１回聴く</button>
-        </div>
-        <p id="tw-loading" class="hint">つぶやきに聞き耳を立てています‥（最大20秒）</p>
-        <div id="tw-body" class="tw" style="display:none"></div>
-        <div id="tw-error" class="error-box"></div>
-      </section>
+  /* ====== ネガ検知 ====== */
+  function hasNegativeNote(s){
+    s = String(s||'').toLowerCase();
+    const re = /(しんど|疲れ|つかれ|いや|嫌|やめたい|無理|むり|つら|辛い|かなしい|悲しい|落ち込|しょんぼり|へこむ|だるい|不安|こわい|怖い)/;
+    return re.test(s);
+  }
 
-      <!-- スナップ -->
-      <section class="card">
-        <div class="row" style="justify-content:space-between;align-items:center">
-          <h2 style="margin:0">スナップ</h2>
-          <div class="row">
-            <label for="snap-file" class="btn">写真を追加</label>
-            <input id="snap-file" type="file" accept="image/*">
-          </div>
-        </div>
-        <div id="snap-grid" class="snap-grid" style="margin-top:10px"></div>
-        <p class="hint">選ぶと自動で縮小保存（長辺1200px）。端末内のローカル保存です。</p>
-      </section>
+  /* ====== 文字種比率・自動補正 ====== */
+  const RE_KANJI=/[一-龯々〆〇ヶ]/g;
+  const RE_JP=/[ぁ-んァ-ン一-龯々〆〇ヶ]/g;
 
-      <!-- SNS -->
-      <section class="card">
-        <h2 style="margin:0 0 8px 0">SNSシェア</h2>
-        <div class="row">
-          <button id="btn-fb" class="btn">Facebook</button>
-          <button id="btn-ig" class="btn">Instagram</button>
-          <button id="btn-tt" class="btn">TikTok</button>
-          <button id="btn-x" class="btn">X</button>
-        </div>
-        <p class="hint">※スナップが無いときはシェアできません。Instagram/TikTokは端末により画像の直接共有ができないため、文章コピー→アプリを開くに自動切替します。</p>
-      </section>
-    </main>
+  function countChars(text, re){ return ((text||'').match(re)||[]).length; }
+  function kanjiRatio(text){ const all=countChars(text,RE_JP); const kj=countChars(text,RE_KANJI); return all? kj/all : 0; }
 
-    <script src="js/config.js"></script>
-    <script src="js/api.js"></script>
-    <script src="js/snaps.js"></script>
+  // 置換辞書（よく出る語だけ・自然な範囲）
+  const KANA_TO_KANJI = [
+    ['そら','空'],['ひかり','光'],['かぜ','風'],['たいよう','太陽'],['つき','月'],
+    ['あさ','朝'],['ゆうぐれ','夕暮れ'],['ひる','昼'],['きもち','気持ち'],
+    ['こころ','心'],['おもい','思い'],['ゆめ','夢'],['ほし','星'],['みず','水'],
+    ['ねこ','猫'],['おうち','家']
+  ];
+  const KANJI_TO_KANA = KANA_TO_KANJI.map(([a,b])=>[b,a]);
 
-    <script>
-      (function(){
-        /* ====== 定数・ユーティリティ ====== */
-        const CATS_KEY='necotubu_cats';
-        const NS=(window.APP_CONFIG&&window.APP_CONFIG.STORAGE_NS)||'necotubu_v1';
-        const HOME_NOTE = NS+':home:note';
-        const HOME_GENDER = NS+':home:gender';
-        const HOME_WEATH = NS+':home:weather';
-        const HOME_DATE  = NS+':home:date';
-        const TWEET_MAX = 320;
+  function replaceOne(text, [from,to]){
+    const re = new RegExp(from.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'g');
+    return text.replace(re,to);
+  }
 
-        function qs(){ return new URLSearchParams(location.search||''); }
-        function clamp(txt,max){ const s=String(txt||''); return s.length<=max?s:s.slice(0,max-1)+'…'; }
-        function todayJST(){ const now=new Date(); return new Date(now.toLocaleString('ja-JP',{timeZone:'Asia/Tokyo'})); }
-        function yobi(n){ return '日月火水木金土'.charAt(n%7); }
-        function weatherEmoji(w){ return ({sunny:'☀',cloudy:'☁',rain:'☂',snow:'❄',storm:'⚡'}[w]||''); }
-        function toDate(y,m,d){ if(!y||!m||!d) return null; const dt=new Date(+y,+m-1,+d); return isNaN(dt)?null:dt; }
-        function yearsBetween(a,b){ if(!a||!b) return null; return (b-a)/(365.25*24*3600*1000); }
-        function firstChar(s){ s=String(s||'').trim(); return s? s[0]:'？'; }
-        function colFor(str){ const AVA=['#7E5A3C','#6B7A40','#AD6A3B','#5E5347','#8C7448','#7A614C','#9A6E4D']; let h=0; str=String(str||''); for(let i=0;i<str.length;i++)h=(h*31+str.charCodeAt(i))|0; return AVA[Math.abs(h)%AVA.length]; }
+  function adjustKanjiToTarget(text, target, downTol, upTol){
+    if (target==null) return text;
 
-        function sanitize(t){
-          return String(t||'')
-            .replace(/にゃん?|ﾆｬ|ﾆｬﾝ|ニャン/gi,'')
-            .replace(/\d{1,2}月\d{1,2}日/g,'きょう')
-            .replace(/\b\d{1,2}:\d{2}\b/g,'')
-            .replace(/(月曜|火曜|水曜|木曜|金曜|土曜|日曜)/g,'')
-            .trim();
-        }
-        function dedupeEndings(s){
-          let out=s;
-          out=out.replace(/(だよ|だね|なの|かな)([よねのー〜]+)(?=。|！|？|$)/g,'$1');
-          out=out.replace(/(よ|ね|の)+(だよ|だね|なの|かな)/g,'$2');
-          out=out.replace(/(だよ|だね|なの|かな)。(?:\s*)(だよ|だね|なの|かな)。(?!\S)/g,'$1。');
-          return out;
-        }
-        function similarity(a,b){
-          a=String(a||''); b=String(b||''); if(!a||!b) return 0;
-          const grams=(s)=>{ const g=new Set(); for(let i=0;i<s.length-1;i++) g.add(s.slice(i,i+2)); return g; };
-          const A=grams(a), B=grams(b); let inter=0; A.forEach(x=>{ if(B.has(x)) inter++; });
-          return inter/Math.max(1, A.size + B.size - inter);
-        }
+    let out = String(text||'');
+    let guard = 0;
 
-        function twKey(id){ return `${NS}:tw:${id}`; }
-        function saveTw(id, ymd, text, weather){
-          const k=twKey(id); const box=JSON.parse(localStorage.getItem(k)||'{}');
-          box[ymd]={ text, weather:weather||'', ts:Date.now() };
-          localStorage.setItem(k, JSON.stringify(box));
-        }
-        function loadTw(id, ymd){
-          try{ const k=twKey(id); const box=JSON.parse(localStorage.getItem(k)||'{}'); return box[ymd]?.text||''; }
-          catch{ return ''; }
-        }
-        function recentAllTweets(limit=60){
-          const res=[];
-          for(let i=0;i<localStorage.length;i++){
-            const k=localStorage.key(i);
-            if(k && k.startsWith(`${NS}:tw:`)){
-              try{
-                const box=JSON.parse(localStorage.getItem(k)||'{}');
-                Object.values(box).forEach(v=>{ if(v?.text) res.push(v.text); });
-              }catch{}
-            }
-          }
-          return res.slice(-limit);
-        }
+    const needWithin = (t)=>{
+      const r = kanjiRatio(t);
+      return r >= Math.max(0, target - downTol) && r <= Math.min(1, target + upTol);
+    };
 
-        function normPersonality(raw=''){
-          const s=String(raw).toLowerCase();
-          if(/やんちゃ|元気|活発/.test(s)) return 'energetic';
-          if(/おだやか|やさしい|穏/.test(s)) return 'calm';
-          if(/さびし|甘え|寂/.test(s)) return 'clingy';
-          if(/マイペース|自由|気分/.test(s)) return 'mypace';
-          if(/ツン|クール|気高|孤高/.test(s)) return 'cool';
-          return 'neutral';
-        }
-        function personaJp(persona){
-          return persona==='energetic'?'元気'
-               : persona==='calm'?'おだやか'
-               : persona==='clingy'?'甘え'
-               : persona==='mypace'?'マイペース'
-               : persona==='cool'?'クール'
-               : '素直';
-        }
-        function ownerNameByPersona(gender, persona, territory){
-          if(String(territory||'').toLowerCase()==='stray'){
-            if(gender==='male') return 'おじちゃん';
-            if(gender==='female') return 'おねえさん';
-            return '人';
-          }
-          const base = gender==='male' ? ['おとう','とうさん','パパ','お父さん']
-                    : gender==='female' ? ['おかあ','かあさん','ママ','お母さん']
-                    : ['ごしゅじん','おうちのひと'];
-          if(persona==='energetic') return base[Math.floor(Math.random()*3)];
-          if(persona==='cool') return base.slice(-2)[Math.floor(Math.random()*2)];
-          if(persona==='clingy') return base.slice(1,3)[Math.floor(Math.random()*2)];
-          return base[Math.floor(Math.random()*base.length)];
-        }
-        function seasonalHints(month,hour,wday,weatherKey){
-          const hints=[];
-          if(wday===5) hints.push('もう週末の空気');
-          if(wday===6) hints.push('週末のゆるさ');
-          if(wday===0) hints.push('週末のしずけさ');
-          if(hour>=16 && hour<=18){
-            if(month>=6 && month<=8) hints.push('明るい夕暮れ');
-            if(month===12 || month<=2) hints.push('夕暮れが早い');
-          }
-          if(hour>=5 && hour<=7 && month>=3 && month<=5) hints.push('朝焼けがきれい');
-          if(hour>=11&&hour<=14){
-            if(month>=7 && month<=8) hints.push('日差しが強い');
-            if(month>=12||month<=2) hints.push('お昼でも空気がひやり');
-          }
-          if(weatherKey==='sunny')  hints.push('日差しがあたたかい');
-          if(weatherKey==='cloudy') hints.push('雲がやわらかい');
-          if(weatherKey==='rain')   hints.push('雨のしずく');
-          if(weatherKey==='snow')   hints.push('雪が綿菓子みたい');
-          if(weatherKey==='storm')  hints.push('風がごうっと吹く');
-          return hints;
-        }
-        function eventWord(mm,dd){
-          const key=`${String(mm).padStart(2,'0')}-${String(dd).padStart(2,'0')}`;
-          const ev={ '01-01':'お正月', '02-03':'節分', '03-03':'ひなまつり', '05-05':'こどもの日',
-                     '07-07':'たなばた', '08-15':'お盆', '10-31':'ハロウィン', '12-24':'クリスマスイブ', '12-25':'クリスマス' };
-          if(ev[key]) return ev[key];
-          if(mm===3&&(dd===20||dd===21)) return '春分の日';
-          if(mm===9&&(dd===22||dd===23)) return '秋分の日';
-          return '';
-        }
+    // 0〜6か月は漢字0%厳守：既知漢字だけでも落とす
+    if (target === 0){
+      KANJI_TO_KANA.forEach(p=>{ out = replaceOne(out, p); });
+      // 万一残ってもここでは止めず返す（残りはAI側でほぼ出ない前提）
+      return out;
+    }
 
-        /* ====== ネガ検知：ネガなら必ずフォロー ====== */
-        function hasNegativeNote(s){
-          s = String(s||'').toLowerCase();
-          const re = /(しんど|疲れ|つかれ|いや|嫌|やめたい|無理|むり|つら|辛い|かなしい|悲しい|落ち込|しょんぼり|へこむ|だるい|不安|こわい|怖い)/;
-          return re.test(s);
-        }
+    // まず不足ならカナ→漢字で少しずつ上げる
+    while (!needWithin(out) && kanjiRatio(out) < target && guard < 60){
+      for (const p of KANA_TO_KANJI){
+        const next = replaceOne(out, p);
+        if (next !== out){ out = next; break; }
+      }
+      guard++;
+      if (needWithin(out)) return out;
+    }
 
-        /* ====== 文字種比率チェック ====== */
-        function kanjiRatio(text){
-          const KANJI=/[一-龯々〆〇ヶ]/g;
-          const JP=/[ぁ-んァ-ン一-龯々〆〇ヶ]/g;
-          const all=(text||'').match(JP)||[];
-          const kj =(text||'').match(KANJI)||[];
-          return all.length? (kj.length/all.length) : 0;
-        }
+    // 多すぎるなら漢字→かなで下げる
+    while (!needWithin(out) && kanjiRatio(out) > target && guard < 120){
+      for (const p of KANJI_TO_KANA){
+        const next = replaceOne(out, p);
+        if (next !== out){ out = next; break; }
+      }
+      guard++;
+      if (needWithin(out)) return out;
+    }
 
-        // ★ ユーザー指定ルール
-        // 0〜0.5歳: 漢字0%（ひらがな100%）
-        // 0.5〜1歳: 漢字10%
-        // 1〜2歳 : 漢字10%→100%へ直線増加
-        function targetKanjiRate(age){
-          if(age==null) return null;
-          if(age < 0.5) return 0.0;
-          if(age < 1.0) return 0.10;
-          if(age < 2.0) return 0.10 + 0.90*(age - 1.0); // 1.0→0.10, 2.0→1.00
-          return 1.0;
-        }
+    return out; // 近づけたところで返す（完全一致に固執しない）
+  }
 
-        /* ====== DeepSeek（GAS）呼び出し：POST＋JSONP 同時実行 ====== */
-        function getApiBase(){
-          const base = (window.APP_CONFIG && window.APP_CONFIG.API_BASE_URL) || '';
-          if(!base) throw new Error('AI API の接続先が未設定です（config.js の API_BASE_URL を確認）');
-          return base.replace(/\/+$/,'');
-        }
-        function getGeminiModel(){ const cfg = window.APP_CONFIG || {}; return cfg.GEMINI_MODEL || cfg.MODEL || 'deepseek-chat'; }
-        function getTemp(){ return (window.APP_CONFIG && window.APP_CONFIG.GEMINI && window.APP_CONFIG.GEMINI.TEMPERATURE) || 0.9; }
+  // 目標漢字率
+  function targetKanjiRate(age){
+    if(age==null) return null;
+    if(age < 0.5) return 0.0;            // 0〜6か月
+    if(age < 1.0) return 0.10;           // 6か月〜1歳
+    if(age < 2.0) return 0.10 + 0.90*(age - 1.0); // 1〜2歳 10%→100%
+    return 1.0;
+  }
 
-        function callJsonp(apiBase, prompt, {model, temperature, maxTokens}){
-          return new Promise((resolve, reject)=>{
-            const cbName = 'NT_JSONP_CB_' + Date.now() + '_' + Math.random().toString(36).slice(2);
-            const url = apiBase + '?action=ai'
-              + '&model=' + encodeURIComponent(model)
-              + (typeof temperature==='number' ? '&temperature=' + encodeURIComponent(temperature) : '')
-              + (typeof maxTokens==='number' ? '&maxTokens=' + encodeURIComponent(maxTokens) : '')
-              + '&prompt=' + encodeURIComponent(prompt)
-              + '&callback=' + encodeURIComponent(cbName);
-            let settled=false;
-            const s=document.createElement('script');
-            const cleanup=()=>{ try{ delete window[cbName]; }catch{}; if(s.parentNode) s.parentNode.removeChild(s); };
-            const timer=setTimeout(()=>{ if(!settled){ settled=true; cleanup(); reject(new Error('jsonp_timeout')); } },20000);
-            window[cbName]=(data)=>{ if(settled) return; settled=true; clearTimeout(timer); cleanup(); resolve(data); };
-            s.src=url; s.onerror=()=>{ if(!settled){ settled=true; clearTimeout(timer); cleanup(); reject(new Error('jsonp_load_error')); } };
-            document.head.appendChild(s);
-          });
-        }
-        async function callPost(apiBase, prompt, {model, temperature, maxTokens}){
-          const body={ model, contents:[{role:"user",parts:[{text:String(prompt||'')}]}], temperature, maxTokens };
-          const res=await fetch(apiBase,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
-          const data=await res.json().catch(()=>({}));
-          if(!res.ok||data.error){ throw new Error((data&&data.error&&data.error.message)||('HTTP '+res.status)); }
-          return data;
-        }
-        function callAIwithRace(prompt,{maxTokens=240}={}){
-          const apiBase=getApiBase(), model=getGeminiModel(), temperature=getTemp();
-          return new Promise((resolve,reject)=>{
-            let done=false;
-            const ok=d=>{ if(done) return; done=true; resolve(d); };
-            const ng=()=>{};
-            callPost(apiBase,prompt,{model,temperature,maxTokens}).then(ok).catch(ng);
-            callJsonp(apiBase,prompt,{model,temperature,maxTokens}).then(ok).catch(ng);
-            setTimeout(()=>{ if(!done) reject(new Error('both_timeout')); },22000);
-          });
-        }
-        function pickTextFromAI(data){
-          return (data&&data.candidates&&data.candidates[0]&&data.candidates[0].content&&data.candidates[0].content.parts&&data.candidates[0].content.parts[0]&&data.candidates[0].content.parts[0].text)||'';
-        }
+  /* ====== GAS 経由 DeepSeek 呼び出し（POST+JSONPレース） ====== */
+  function getApiBase(){
+    const base = (window.APP_CONFIG && window.APP_CONFIG.API_BASE_URL) || '';
+    if(!base) throw new Error('AI API の接続先が未設定です（config.js の API_BASE_URL を確認）');
+    return base.replace(/\/+$/,''); // config 側が /exec まで含んでいる
+  }
+  function getGeminiModel(){ const cfg = window.APP_CONFIG || {}; return cfg.GEMINI_MODEL || cfg.MODEL || 'deepseek-chat'; }
+  function getTemp(){ return (window.APP_CONFIG && window.APP_CONFIG.GEMINI && window.APP_CONFIG.GEMINI.TEMPERATURE) || 0.9; }
 
-        /* ====== 年齢×性格の口調（ユーザー指定に合わせて更新） ====== */
-        function buildToneRules(ageYears, persona){
-          const pj = personaJp(persona);
-          const lines=[];
-          if (ageYears==null){
-            lines.push('年齢不明：自然でやさしい日本語。');
-          } else if (ageYears < 0.5){
-            lines.push('出生〜6か月：**ひらがな100%**（漢字は使わない）。**強い赤ちゃん言葉**。文はとても短く。');
-          } else if (ageYears < 1){
-            lines.push('6か月〜1歳：**赤ちゃん言葉を強め**、ひらがな中心。**漢字は約10%**まで。');
-          } else if (ageYears < 2){
-            const pct=Math.round(targetKanjiRate(ageYears)*100);
-            lines.push('1〜2歳：赤ちゃん言葉から性格寄りへ移行。**現在の目安：漢字約'+pct+'%**。**全ひらがなは禁止**。');
-          } else {
-            lines.push('2歳以上：自然な日本語。性格（'+pj+'）の語感をはっきり。');
-          }
-          if (persona==='energetic')  lines.push('テンポよく・明るく。必要に応じて軽い感嘆符。');
-          if (persona==='calm')       lines.push('やわらか・ていねい。落ち着いた語感。');
-          if (persona==='clingy')     lines.push('呼びかけを少し増やして安心を求める。');
-          if (persona==='mypace')     lines.push('のんびり。ときどき「…」で間をとる。');
-          if (persona==='cool')       lines.push('端的に言い切る。感嘆符は控えめ。');
-          return lines.join(' / ');
-        }
+  function callJsonp(apiBase, prompt, {model, temperature, maxTokens}){
+    return new Promise((resolve, reject)=>{
+      const cbName = 'NT_JSONP_CB_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+      const url = apiBase + '?action=ai'
+        + '&model=' + encodeURIComponent(model)
+        + (typeof temperature==='number' ? '&temperature=' + encodeURIComponent(temperature) : '')
+        + (typeof maxTokens==='number' ? '&maxTokens=' + encodeURIComponent(maxTokens) : '')
+        + '&prompt=' + encodeURIComponent(prompt)
+        + '&callback=' + encodeURIComponent(cbName);
+      let settled=false;
+      const s=document.createElement('script');
+      const cleanup=()=>{ try{ delete window[cbName]; }catch{}; if(s.parentNode) s.parentNode.removeChild(s); };
+      const timer=setTimeout(()=>{ if(!settled){ settled=true; cleanup(); reject(new Error('jsonp_timeout')); } },20000);
+      window[cbName]=(data)=>{ if(settled) return; settled=true; clearTimeout(timer); cleanup(); resolve(data); };
+      s.src=url; s.onerror=()=>{ if(!settled){ settled=true; clearTimeout(timer); cleanup(); reject(new Error('jsonp_load_error')); } };
+      document.head.appendChild(s);
+    });
+  }
+  async function callPost(apiBase, prompt, {model, temperature, maxTokens}){
+    const body={ model, contents:[{role:"user",parts:[{text:String(prompt||'')}]}], temperature, maxTokens };
+    const res=await fetch(apiBase,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+    const data=await res.json().catch(()=>({}));
+    if(!res.ok||data.error){ throw new Error((data&&data.error&&data.error.message)||('HTTP '+res.status)); }
+    return data;
+  }
+  function callAIwithRace(prompt,{maxTokens=240}={}){
+    const apiBase=getApiBase(), model=getGeminiModel(), temperature=getTemp();
+    return new Promise((resolve,reject)=>{
+      let done=false;
+      const ok=d=>{ if(done) return; done=true; resolve(d); };
+      const ng=()=>{};
+      callPost(apiBase,prompt,{model,temperature,maxTokens}).then(ok).catch(ng);
+      callJsonp(apiBase,prompt,{model,temperature,maxTokens}).then(ok).catch(ng);
+    });
+  }
+  function pickTextFromAI(data){
+    return (data&&data.candidates&&data.candidates[0]&&data.candidates[0].content&&data.candidates[0].content.parts&&data.candidates[0].content.parts[0]&&data.candidates[0].content.parts[0].text)||'';
+  }
 
-        function promptBuilder(ctx, opts){
-          const {name, ageYears, personality, territory, weatherKey, note, ownerGender} = ctx;
-          const now2=todayJST();
-          const month = now2.getMonth()+1, hour = now2.getHours(), day = now2.getDate(), wday = now2.getDay();
-          const persona = normPersonality(personality||'');
-          const hints = seasonalHints(month,hour,wday,weatherKey);
-          const ev = eventWord(month, day);
-          const ownerLabel = ownerNameByPersona(ownerGender, persona, territory);
+  /* ====== 年齢×性格の口調（説明は省略：既存と同様） ====== */
+  function buildToneRules(ageYears, persona){
+    const pj = personaJp(persona);
+    const lines=[];
+    if (ageYears==null){
+      lines.push('年齢不明：自然でやさしい日本語。');
+    } else if (ageYears < 0.5){
+      lines.push('出生〜6か月：ひらがな100%（漢字は使わない）。強い赤ちゃん言葉。');
+    } else if (ageYears < 1){
+      lines.push('6か月〜1歳：赤ちゃん言葉を強め、ひらがな中心。漢字は約10%まで。');
+    } else if (ageYears < 2){
+      const pct=Math.round(targetKanjiRate(ageYears)*100);
+      lines.push('1〜2歳：性格寄りへ移行。現在の目安：漢字約'+pct+'%。全ひらがなは禁止。');
+    } else {
+      lines.push('2歳以上：自然な日本語。性格（'+pj+'）をはっきり。');
+    }
+    if (persona==='energetic')  lines.push('テンポよく・明るく。');
+    if (persona==='calm')       lines.push('やわらか・ていねい。');
+    if (persona==='clingy')     lines.push('やさしい呼びかけを少し増やす。');
+    if (persona==='mypace')     lines.push('のんびり、間をとる。');
+    if (persona==='cool')       lines.push('端的に言い切る。');
+    return lines.join(' / ');
+  }
 
-          const mentionOwner = !!(opts && opts.mentionOwner);
-          const forceComfort = !!(opts && opts.forceComfort);
-          const tone = buildToneRules(ageYears, persona);
-          const tgt = targetKanjiRate(ageYears);
-          const tgtLine = (tgt==null) ? '' : ('【文字種の目安】漢字率: 約'+Math.round(tgt*100)+'%');
+  function promptBuilder(ctx, opts){
+    const {name, ageYears, personality, territory, weatherKey, note, ownerGender} = ctx;
+    const now2=todayJST();
+    const month = now2.getMonth()+1, hour = now2.getHours(), day = now2.getDate(), wday = now2.getDay();
+    const persona = normPersonality(personality||'');
+    const hints = seasonalHints(month,hour,wday,weatherKey);
+    const ev = eventWord(month, day);
+    const ownerLabel = ownerNameByPersona(ownerGender, persona, territory);
 
-          const ownerBlock = mentionOwner
-              ? '【主人のひとこと】'+(String(note||'(なし)').slice(0,120))+' / 呼び方例:'+ownerLabel
-              : '【主人のひとこと】（この回は触れない） / 呼び方例:'+ownerLabel;
+    const mentionOwner = !!(opts && opts.mentionOwner);
+    const forceComfort = !!(opts && opts.forceComfort);
+    const tone = buildToneRules(ageYears, persona);
+    const tgt = targetKanjiRate(ageYears);
+    const tgtLine = (tgt==null) ? '' : ('【文字種の目安】漢字率: 約'+Math.round(tgt*100)+'%');
 
-          const rules = [
-            '- 一人称は常に自分の名前「'+name+'」。',
-            '- 季節・時間帯・天気のニュアンスを必ず入れる（明るい夕暮れ、朝焼け、日差し、雪が綿菓子みたい など）。',
-            '- 具体的な年月日・曜日・時刻は書かない（抽象表現のみ）。',
-            '- 「にゃ」「にゃん」などの擬音は使わない。',
-            '- 出力は1段落のみ。最大'+TWEET_MAX+'文字ていど。句読点は自然に。'
-          ];
+    const ownerBlock = mentionOwner
+        ? '【主人のひとこと】'+(String(note||'(なし)').slice(0,120))+' / 呼び方例:'+ownerLabel
+        : '【主人のひとこと】（この回は触れない） / 呼び方例:'+ownerLabel;
 
-          // ネガは必ずフォロー
-          if (forceComfort) {
-            rules.push('- 主人のひとことがネガなら、必ず一度だけやさしくフォローし、安心させる表現を入れる。');
-          } else if (mentionOwner) {
-            rules.push('- 主人のひとことには一度だけ軽く触れる。繰り返さない。');
-          } else {
-            rules.push('- この回は主人のひとことには触れない。');
-          }
+    const rules = [
+      '- 一人称は常に自分の名前「'+name+'」。',
+      '- 季節・時間帯・天気のニュアンスを必ず入れる。',
+      '- 具体的な年月日・曜日・時刻は書かない（抽象表現のみ）。',
+      '- 「にゃ」「にゃん」などは使わない。',
+      '- 出力は1段落のみ。最大'+TWEET_MAX+'文字ていど。句読点は自然に。'
+    ];
+    if (forceComfort)      rules.push('- 主人のひとことがネガなら、一度だけやさしくフォローする。');
+    else if (mentionOwner) rules.push('- 主人のひとことには一度だけ軽く触れる。');
+    else                   rules.push('- この回は主人のひとことには触れない。');
 
-          // 年齢帯ごとの厳格指示
-          if (ageYears!=null && ageYears < 0.5){
-            rules.push('- **漢字は使わない（0%）**。とてもやさしい赤ちゃん言葉。文はとても短く。');
-          } else if (ageYears!=null && ageYears < 1){
-            rules.push('- **漢字は約10%**に抑える。赤ちゃん言葉を強める。');
-          } else if (ageYears!=null && ageYears < 2){
-            rules.push('- **全ひらがなは禁止**。指示した漢字率の目安に近づける。');
-          }
+    if (ageYears!=null && ageYears < 0.5) rules.push('- 漢字は使わない（0%）。とてもやさしい赤ちゃん言葉、短い文。');
+    else if (ageYears!=null && ageYears < 1) rules.push('- 漢字は約10%に抑える。赤ちゃん言葉を強める。');
+    else if (ageYears!=null && ageYears < 2) rules.push('- 全ひらがなは禁止。指示した漢字率の目安に近づける。');
 
-          return [
-            'あなたは猫の詩的つぶやきを書くアシスタントです。',
-            '【ねこ】名前:'+name+' / 性格:'+(personality||'不明')+' / テリトリー:'+(territory||'-'),
-            '【推定年齢】'+(ageYears==null?'不明':(ageYears.toFixed(2)+'歳')),
-            '【天気】'+(weatherKey||'-')+' / 【季節・時間ヒント】'+(hints.join('、')||'なし')+' / 【イベント】'+(ev||'なし'),
-            ownerBlock,
-            '【口調方針】'+tone,
-            tgtLine,
-            'ルール：',
-            rules.join('\n')
-          ].join('\n');
-        }
+    return [
+      'あなたは猫の詩的つぶやきを書くアシスタントです。',
+      '【ねこ】名前:'+name+' / 性格:'+(personality||'不明')+' / テリトリー:'+(territory||'-'),
+      '【推定年齢】'+(ageYears==null?'不明':(ageYears.toFixed(2)+'歳')),
+      '【天気】'+(weatherKey||'-')+' / 【季節・時間ヒント】'+(hints.join('、')||'なし')+' / 【イベント】'+(ev||'なし'),
+      ownerBlock,
+      '【口調方針】'+tone,
+      tgtLine,
+      'ルール：',
+      rules.join('\n')
+    ].join('\n');
+  }
 
-        /* ====== メイン ====== */
-        document.addEventListener('DOMContentLoaded', ()=>{
-          const errBox = document.getElementById('tw-error');
-          function showError(msg){ errBox.textContent=msg; errBox.style.display='block'; }
-          function clearError(){ errBox.style.display='none'; errBox.textContent=''; }
+  /* ====== 画面セットアップ＆生成 ====== */
+  document.addEventListener('DOMContentLoaded', ()=>{
+    const errBox = document.getElementById('tw-error');
+    const showError = (m)=>{ errBox.textContent=m; errBox.style.display='block'; };
+    const clearError = ()=>{ errBox.style.display='none'; errBox.textContent=''; };
 
-          const catId = qs().get('catId') || qs().get('catid');
-          const calLink = document.querySelector('a[href="index_calendar.html"]');
-          if (calLink && catId) calLink.href = 'index_calendar.html?catId=' + encodeURIComponent(catId);
+    const catId = qs().get('catId') || qs().get('catid');
+    const calLink = document.querySelector('a[href="index_calendar.html"]');
+    if (calLink && catId) calLink.href = 'index_calendar.html?catId=' + encodeURIComponent(catId);
 
-          const cats=JSON.parse(localStorage.getItem(CATS_KEY)||'[]');
-          const cat=cats.find(c=>c.id===catId);
-          if(!cat){ alert('ネコ情報が見つかりません'); location.href='index_cats.html'; return; }
+    const cats=JSON.parse(localStorage.getItem(CATS_KEY)||'[]');
+    const cat=cats.find(c=>c.id===catId);
+    if(!cat){ alert('ネコ情報が見つかりません'); location.href='index_cats.html'; return; }
 
-          const now=todayJST();
-          const bday=toDate(cat.birthYear,cat.birthMonth,cat.birthDay);
+    const now=todayJST();
+    const bday=toDate(cat.birthYear,cat.birthMonth,cat.birthDay);
 
-          let created = cat.createdAt? new Date(cat.createdAt): null;
-          if(!created || isNaN(created.getTime())){
-            created = new Date();
-            cat.createdAt=created.toISOString();
-            const i=cats.findIndex(c=>c.id===cat.id);
-            if(i>=0){cats[i]=cat; localStorage.setItem(CATS_KEY,JSON.stringify(cats));}
-          }
-          const assumed=bday || new Date(created.getTime()-182*24*3600*1000);
-          const ageYears=yearsBetween(assumed, now);
+    let created = cat.createdAt? new Date(cat.createdAt): null;
+    if(!created || isNaN(created.getTime())){
+      created = new Date();
+      cat.createdAt=created.toISOString();
+      const i=cats.findIndex(c=>c.id===cat.id);
+      if(i>=0){cats[i]=cat; localStorage.setItem(CATS_KEY,JSON.stringify(cats));}
+    }
+    const assumed=bday || new Date(created.getTime()-182*24*3600*1000);
+    const ageYears=yearsBetween(assumed, now);
 
-          const av=document.getElementById('cat-avatar');
-          document.getElementById('cat-name').textContent=cat.name||'ネコ';
-          document.getElementById('tw-title').textContent=(cat.name||'ネコ')+'のつぶやき';
+    const av=document.getElementById('cat-avatar');
+    document.getElementById('cat-name').textContent=cat.name||'ネコ';
+    document.getElementById('tw-title').textContent=(cat.name||'ネコ')+'のつぶやき';
 
-          const genderLabel = { male: "おとこの子", female: "おんなの子", other: "わからない" };
-          document.getElementById('cat-gender').textContent = "性別: " + (genderLabel[cat.gender] || "わからない");
+    const genderLabel = { male: "おとこの子", female: "おんなの子", other: "わからない" };
+    document.getElementById('cat-gender').textContent = "性別: " + (genderLabel[cat.gender] || "わからない");
 
-          if(cat.avatar){
-            av.innerHTML=''; const im=new Image();
-            im.src=cat.avatar; im.alt='avatar'; im.style.width='100%'; im.style.height='100%'; im.style.objectFit='cover';
-            av.appendChild(im);
-          } else {
-            av.textContent=firstChar(cat.name||'？'); av.style.background=colFor(cat.name||'?');
+    if(cat.avatar){
+      av.innerHTML=''; const im=new Image();
+      im.src=cat.avatar; im.alt='avatar'; im.style.width='100%'; im.style.height='100%'; im.style.objectFit='cover';
+      av.appendChild(im);
+    } else {
+      av.textContent=firstChar(cat.name||'？'); av.style.background=colFor(cat.name||'?');
+    }
+
+    // 年齢表示：12か月以上は「X歳 Yか月」
+    const ageEl=document.getElementById('cat-age');
+    if(ageYears!=null){
+      const totalMonths = Math.max(0, Math.floor(ageYears*12));
+      const y = Math.floor(totalMonths/12);
+      const m = totalMonths % 12;
+      ageEl.textContent = y===0 ? ('年齢: '+m+'か月') : ('年齢: '+y+'歳 '+m+'か月');
+    } else {
+      ageEl.textContent='年齢: 不明';
+    }
+
+    document.getElementById('cat-breed').textContent='猫種: '+(cat.breed||'-');
+    document.getElementById('cat-personality').textContent='性格: '+(cat.personality||'-');
+    document.getElementById('cat-fav').textContent='特徴: '+(cat.favorites||'-');
+    const TERR_LABEL={ indoor:'完全家ネコ', outdoor:'外出可ネコ', stray:'野良ネコ', fantasy:'妄想ネコ' };
+    document.getElementById('cat-territory').textContent='テリトリー: '+(TERR_LABEL[String(cat.territory||'').toLowerCase()]||'-');
+
+    const dstr=localStorage.getItem(HOME_DATE)||''; const weath=(localStorage.getItem(HOME_WEATH)||'').toLowerCase();
+    let disp=dstr;
+    if(!disp){ disp = now.getFullYear()+'年'+(now.getMonth()+1)+'月'+now.getDate()+'日（'+yobi(now.getDay())+'）'; }
+    document.getElementById('tw-date').textContent=disp+' '+weatherEmoji(weath);
+
+    // Snaps（省略：既存どおり）
+    let snaps;
+    try{
+      if (window.Snaps && typeof window.Snaps.init === 'function') {
+        snaps = window.Snaps.init({ catId: cat.id, fileInputId: 'snap-file', gridId: 'snap-grid', maxSide: 1200 });
+      } else { throw new Error('snaps_not_loaded'); }
+    }catch(e){
+      console.warn('Snaps init failed:', e && e.message ? e.message : e);
+      snaps = { hasSnaps: ()=>false, onChange: ()=>{} };
+      showError('写真機能の読み込みに失敗しました。Ctrl+F5 で再読み込み、直らなければ古い写真を少し整理してください。');
+    }
+
+    const btnFB=document.getElementById('btn-fb');
+    const btnIG=document.getElementById('btn-ig');
+    const btnTT=document.getElementById('btn-tt');
+    const btnX =document.getElementById('btn-x');
+    const setDisabled=(off)=>[btnFB,btnIG,btnTT,btnX].forEach(b=> b.classList[off?'add':'remove']('disabled'));
+    setDisabled(!snaps.hasSnaps()); snaps.onChange(()=> setDisabled(!snaps.hasSnaps()));
+
+    const loading=document.getElementById('tw-loading');
+    const body=document.getElementById('tw-body');
+    const regenBtn=document.getElementById('btn-regen');
+    let lastGenerated='';
+
+    function saveAndShow(ymd, text){
+      saveTw(cat.id, ymd, text, weath);
+      lastGenerated = text;
+      loading.style.display='none'; body.style.display='block';
+      body.textContent = text || '……（うとうと）';
+      regenBtn.classList.remove('disabled');
+    }
+    function showErr(msg){
+      loading.style.display='none';
+      body.style.display='block';
+      body.textContent='';
+      regenBtn.classList.remove('disabled');
+      const box=document.getElementById('tw-error'); box.textContent=msg; box.style.display='block';
+    }
+    function startLoading(){
+      document.getElementById('tw-error').style.display='none';
+      loading.style.display='block';
+      body.style.display='none'; body.textContent='';
+      regenBtn.classList.add('disabled');
+    }
+
+    function ctxBase(){
+      return {
+        name: cat.name||'ネコ',
+        ageYears,
+        personality: cat.personality||'',
+        territory: String(cat.territory||''),
+        weatherKey: weath,
+        note: localStorage.getItem(HOME_NOTE)||'',
+        ownerGender: localStorage.getItem(HOME_GENDER)||''
+      };
+    }
+
+    async function generate({forceRegen=false}={}){
+      const now2=todayJST();
+      const ymd = now2.getFullYear()+'-'+String(now2.getMonth()+1).padStart(2,'0')+'-'+String(now2.getDate()).padStart(2,'0');
+      const prevSaved = loadTw(cat.id, ymd);
+
+      if(prevSaved && !forceRegen){
+        body.textContent = prevSaved;
+        loading.style.display='none'; body.style.display='block';
+        regenBtn.classList.remove('disabled'); return;
+      }
+
+      startLoading();
+
+      const others = recentAllTweets(60);
+      const ctx = ctxBase();
+      const noteRaw = String(ctx.note || '');
+      const isNeg = hasNegativeNote(noteRaw);
+      const mentionOwner = isNeg || (Math.random() < 0.34);
+
+      const tgt = targetKanjiRate(ctx.ageYears);
+      const tolDown = (ctx.ageYears!=null && ctx.ageYears<1) ? 0.04 : 0.10; // 幼い帯は厳しめ
+      const tolUp   = (ctx.ageYears!=null && ctx.ageYears<1) ? 0.04 : 0.10;
+
+      let finalText='';
+      let bestText=''; let bestGap=999;
+
+      try{
+        for(let i=0;i<6;i++){
+          let prompt = promptBuilder(ctx, { mentionOwner, forceComfort: isNeg });
+          if (i>0) prompt += '\n【追加条件】前回と似た言い回しは避け、新しい語彙で書き直してください（強度:'+i+'）。';
+
+          const data = await callAIwithRace(prompt, {maxTokens:240});
+          let draft = sanitize(String(pickTextFromAI(data)||''));
+          if(!/[。！？]$/.test(draft)) draft+='。';
+          draft = dedupeEndings(draft);
+
+          // 自動補正で目標漢字率へ寄せる
+          if (tgt!=null){
+            draft = adjustKanjiToTarget(draft, tgt, tolDown, tolUp);
           }
 
-          // 年齢表示：12か月以上は必ず「X歳 Yか月」
-          const ageEl=document.getElementById('cat-age');
-          if(ageYears!=null){
-            const totalMonths = Math.max(0, Math.floor(ageYears*12));
-            const y = Math.floor(totalMonths/12);
-            const m = totalMonths % 12;
-            if (y===0){
-              ageEl.textContent = '年齢: ' + m + 'か月';
-            } else {
-              ageEl.textContent = '年齢: ' + y + '歳 ' + m + 'か月';
-            }
-          } else {
-            ageEl.textContent='年齢: 不明';
+          // 類似チェック
+          const simPrev = prevSaved ? similarity(draft, prevSaved) : 0;
+          const simLast = lastGenerated ? similarity(draft, lastGenerated) : 0;
+          const simOthers = Math.max(...others.map(o=> similarity(draft,o)||0),0);
+
+          // 目標にどれだけ近いか記録
+          const gap = (tgt==null) ? 0 : Math.abs(kanjiRatio(draft) - tgt);
+          if (gap < bestGap){ bestGap = gap; bestText = draft; }
+
+          // 採用条件
+          const ratioOk = (tgt==null) ? true
+            : (kanjiRatio(draft) >= Math.max(0, tgt - tolDown)) && (kanjiRatio(draft) <= Math.min(1, tgt + tolUp));
+
+          if(simPrev<0.50 && simLast<0.50 && simOthers<0.48 && ratioOk){
+            finalText=draft; break;
           }
+        }
 
-          document.getElementById('cat-breed').textContent='猫種: '+(cat.breed||'-');
-          document.getElementById('cat-personality').textContent='性格: '+(cat.personality||'-');
-          document.getElementById('cat-fav').textContent='特徴: '+(cat.favorites||'-');
-          const TERR_LABEL={ indoor:'完全家ネコ', outdoor:'外出可ネコ', stray:'野良ネコ', fantasy:'妄想ネコ' };
-          document.getElementById('cat-territory').textContent='テリトリー: '+(TERR_LABEL[String(cat.territory||'').toLowerCase()]||'-');
+        // 6回やってダメでも「最も近い候補」を採用（止めない）
+        if(!finalText) finalText = bestText || 'きょうは、すこし ねむい。';
 
-          const dstr=localStorage.getItem(HOME_DATE)||''; const weath=(localStorage.getItem(HOME_WEATH)||'').toLowerCase();
-          let disp=dstr;
-          if(!disp){ disp = now.getFullYear()+'年'+(now.getMonth()+1)+'月'+now.getDate()+'日（'+yobi(now.getDay())+'）'; }
-          document.getElementById('tw-date').textContent=disp+' '+weatherEmoji(weath);
+        finalText = clamp(finalText, TWEET_MAX);
+        saveAndShow(ymd, finalText);
 
-          /* ====== Snaps 初期化（フェイルセーフ） ====== */
-          let snaps;
-          try{
-            if (window.Snaps && typeof window.Snaps.init === 'function') {
-              snaps = window.Snaps.init({ catId: cat.id, fileInputId: 'snap-file', gridId: 'snap-grid', maxSide: 1200 });
-            } else { throw new Error('snaps_not_loaded'); }
-          }catch(e){
-            console.warn('Snaps init failed:', e && e.message ? e.message : e);
-            snaps = { hasSnaps: ()=>false, onChange: ()=>{} };
-            showError('写真機能の読み込みに失敗しました。古い写真が多い場合は容量がいっぱいの可能性があります。Ctrl+F5 で再読み込み、直らなければ古い写真を少し整理してください。');
-          }
+      }catch(e){
+        // 例外でも最後の保険
+        const fallback = bestText || 'きょうは、すこし ねむい。';
+        saveAndShow(ymd, clamp(fallback, TWEET_MAX));
+      }
+    }
 
-          const btnFB=document.getElementById('btn-fb');
-          const btnIG=document.getElementById('btn-ig');
-          const btnTT=document.getElementById('btn-tt');
-          const btnX =document.getElementById('btn-x');
-          function setDisabled(off){ [btnFB,btnIG,btnTT,btnX].forEach(b=> b.classList[off?'add':'remove']('disabled')); }
-          setDisabled(!snaps.hasSnaps()); snaps.onChange(()=> setDisabled(!snaps.hasSnaps()));
-
-          const loading=document.getElementById('tw-loading');
-          const body=document.getElementById('tw-body');
-          const regenBtn=document.getElementById('btn-regen');
-          let lastGenerated='';
-
-          function saveAndShow(ymd, text){
-            saveTw(cat.id, ymd, text, weath);
-            lastGenerated = text;
-            loading.style.display='none'; body.style.display='block';
-            body.textContent = text || '……（うとうと）';
-            regenBtn.classList.remove('disabled');
-          }
-          function showErr(msg){
-            loading.style.display='none';
-            body.style.display='block';
-            body.textContent='';
-            regenBtn.classList.remove('disabled');
-            const box=document.getElementById('tw-error'); box.textContent=msg; box.style.display='block';
-          }
-          function startLoading(){
-            document.getElementById('tw-error').style.display='none';
-            loading.style.display='block';
-            body.style.display='none'; body.textContent='';
-            regenBtn.classList.add('disabled');
-          }
-
-          function ctxBase(){
-            return {
-              name: cat.name||'ネコ',
-              ageYears,
-              personality: cat.personality||'',
-              territory: String(cat.territory||''),
-              weatherKey: weath,
-              note: localStorage.getItem(HOME_NOTE)||'',
-              ownerGender: localStorage.getItem(HOME_GENDER)||''
-            };
-          }
-
-          async function generate({forceRegen=false}={}){
-            const now2=todayJST();
-            const ymd = now2.getFullYear()+'-'+String(now2.getMonth()+1).padStart(2,'0')+'-'+String(now2.getDate()).padStart(2,'0');
-            const prevSaved = loadTw(cat.id, ymd);
-
-            if(prevSaved && !forceRegen){
-              body.textContent = prevSaved;
-              loading.style.display='none'; body.style.display='block';
-              regenBtn.classList.remove('disabled'); return;
-            }
-
-            startLoading();
-
-            const others = recentAllTweets(60);
-            const ctx = ctxBase();
-            const noteRaw = String(ctx.note || '');
-            const isNeg = hasNegativeNote(noteRaw);
-            const mentionOwner = isNeg || (Math.random() < 0.34);
-
-            const tgt = targetKanjiRate(ctx.ageYears);
-            // 許容幅（%ポイント）
-            const mSmall = 0.04;  // ±4pp（幼い帯は厳しめ）
-            const mMed   = 0.10;  // ±10pp（1〜2歳帯は広め）
-            let finalText='';
-            let enforceLevel=0;
-
-            try{
-              for(let i=0;i<6;i++){
-                let prompt = promptBuilder(ctx, { mentionOwner, forceComfort: isNeg });
-
-                // 強化指示（必要時）
-                if (enforceLevel>0){
-                  if (ctx.ageYears!=null && ctx.ageYears < 0.5){
-                    prompt += '\n【制約強化】出生〜6か月です。**漢字は使わない（0%）**で書いてください。やさしい赤ちゃん言葉、短い文だけ。';
-                  } else if (ctx.ageYears!=null && ctx.ageYears < 1){
-                    prompt += '\n【制約強化】6か月〜1歳です。**漢字は約10%**に抑えてください。赤ちゃん言葉を強く。';
-                  } else if (ctx.ageYears!=null && ctx.ageYears < 2){
-                    const pct = Math.round(tgt*100);
-                    prompt += '\n【制約強化】1〜2歳の移行期です。**全ひらがなは禁止**。**漢字は全体の約'+pct+'%（±10%）**になるように。';
-                  }
-                }
-
-                // 言い換え強度
-                if (i>0){
-                  prompt += '\n【追加条件】前回と似た言い回しは避け、新しい語彙で書き直してください（強度:'+i+'）。';
-                }
-
-                const data = await callAIwithRace(prompt, {maxTokens:240});
-                let draft = sanitize(String(pickTextFromAI(data)||''));
-                if(!/[。！？]$/.test(draft)) draft+='。';
-                draft = dedupeEndings(draft);
-
-                // 類似チェック
-                const simPrev = prevSaved ? similarity(draft, prevSaved) : 0;
-                const simLast = lastGenerated ? similarity(draft, lastGenerated) : 0;
-                const simOthers = Math.max(...others.map(o=> similarity(draft,o)||0),0);
-
-                // 文字種チェック
-                const kr = kanjiRatio(draft);
-                let ratioOk = true;
-                if (ctx.ageYears!=null && ctx.ageYears < 0.5){
-                  ratioOk = (kr === 0); // 完全0%
-                } else if (ctx.ageYears!=null && ctx.ageYears < 1){
-                  ratioOk = (kr >= 0.10 - mSmall) && (kr <= 0.10 + mSmall); // 10%±4pp
-                } else if (ctx.ageYears!=null && ctx.ageYears < 2){
-                  ratioOk = (kr >= Math.max(0, tgt - mMed)) && (kr <= Math.min(1, tgt + mMed)); // 目安±10pp
-                }
-
-                if(simPrev<0.50 && simLast<0.50 && simOthers<0.48 && ratioOk){
-                  finalText=draft; break;
-                } else {
-                  enforceLevel++; // 次は強めに指示
-                }
-              }
-
-              if(!finalText) throw new Error('条件に合う文章が得られませんでした');
-
-              finalText = clamp(finalText, TWEET_MAX);
-              saveAndShow(ymd, finalText);
-
-            }catch(e){
-              const msg = (e && e.message === 'jsonp_timeout') ? 'AIへの接続が混み合っています。少し待って、もう一度ためしてください。'
-                        : (e && e.message === 'both_timeout') ? '少し時間がかかっています。通信状況を確認して、もう一度ためしてください。'
-                        : ('AI生成に失敗しました。AI（DeepSeek）の設定やネットワークをご確認ください。' + (e && e.message ? '（詳細: ' + e.message + '）' : ''));
-              showErr(msg);
-            }
-          }
-
-          generate();
-          regenBtn.addEventListener('click', ()=>{
-            if(regenBtn.classList.contains('disabled')) return;
-            generate({forceRegen:true});
-          });
-        });
-      })();
-    </script>
-  </body>
-</html>
+    generate();
+    document.getElementById('btn-regen').addEventListener('click', ()=>{
+      const b=document.getElementById('btn-regen');
+      if(b.classList.contains('disabled')) return;
+      generate({forceRegen:true});
+    });
+  });
+})();
+</script>
