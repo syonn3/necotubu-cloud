@@ -13,7 +13,7 @@
       --shadow:0 3px 12px rgba(0,0,0,.4); --radius:16px;
     }
     *{box-sizing:border-box}
-    html,body{margin:0;padding:0;background:var(--c-bg);color:var(--c-ink);font-family:-apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Noto Sans JP","Yu Gothic UI","Meiryo",sans-serif;line-height:1.6}
+    html,body{margin:0;padding:0;background:var(--c-bg);color:var(--c-ink);font-family:-apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Noto Sans JP","Meiryo",sans-serif;line-height:1.6}
     a{color:var(--c-primary);text-decoration:none}
     a:focus{outline:2px solid var(--c-accent);outline-offset:2px}
     header.app-header{position:sticky;top:0;z-index:20;background:var(--c-paper);border-bottom:1px solid var(--c-line);box-shadow:var(--shadow)}
@@ -80,6 +80,7 @@
       const KEY_NOTE    = NS + ":home:note";
       const KEY_GENDER  = NS + ":home:gender"; // 互換用（ここではUI表示しないが消去時は対象）
       const KEY_WEATHER = NS + ":home:weather";
+      const API_BASE = (window.APP_CONFIG && window.APP_CONFIG.API_BASE_URL) || ""; // ← /exec
 
       const noteEl   = document.getElementById('note');
       const saveBtn  = document.getElementById('btn-save');
@@ -108,11 +109,32 @@
         }catch(e){}
       });
 
+      // GASへ“やわらかく”送る（CORS予防：text/plain）
+      function postHomeToGAS(payload){
+        if(!API_BASE) return; // config 未設定なら何もしない
+        try{
+          fetch(API_BASE, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain' },
+            body: JSON.stringify({ action:'saveHome', ...payload })
+          }).catch(()=>{ /* 通信失敗は画面には出さない（ローカル保存は完了しているため） */ });
+        }catch(_){}
+      }
+
       saveBtn.addEventListener('click', ()=>{
         try{
           localStorage.setItem(KEY_NOTE, noteEl.value || "");
           // 性別は index.html で保存・管理（ここでは触らない）
           localStorage.setItem(KEY_WEATHER, weatherEl.value || "sunny");
+
+          // GASにも送る（fire-and-forget）
+          postHomeToGAS({
+            catId: localStorage.getItem("selectedCatId") || "home",
+            date: new Date().toISOString().slice(0,10),
+            weather: weatherEl.value || "sunny",
+            note: (noteEl.value || "").trim()
+          });
+
           alert('保存しました。');
         }catch(e){ alert('保存に失敗しました。'); }
       });
