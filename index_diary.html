@@ -76,7 +76,9 @@
         <div class="row" style="justify-content:space-between;align-items:center">
           <div>
             <h2 id="tw-title" style="margin:0 0 8px 0">つぶやき</h2>
-            <p id="tw-date" style="font-weight:600;margin:0 0 10px 0"></p>
+            <p id="tw-date" style="font-weight:600;margin:0 0 6px 0"></p>
+            <!-- ★開発用の速度表示（dev環境のみ表示） -->
+            <p id="tw-perf" class="hint" style="display:none;margin:0"></p>
           </div>
           <button id="btn-regen" class="btn">もう１回聴く</button>
         </div>
@@ -171,7 +173,7 @@
           catch{ return ''; }
         }
         function recentAllTweets(limit=60){
-          const res=[];
+          const res=[]; 
           for(let i=0;i<localStorage.length;i++){
             const k=localStorage.key(i);
             if(k && k.startsWith(`${NS}:tw:`)){
@@ -435,6 +437,8 @@
           const loading=document.getElementById('tw-loading');
           const body=document.getElementById('tw-body');
           const regenBtn=document.getElementById('btn-regen');
+          const perfLine=document.getElementById('tw-perf');
+          const isDev=((window.APP_CONFIG&&window.APP_CONFIG.ENV)||'prod')==='dev';
           let lastGenerated='';
 
           function saveAndShow(ymd, text){
@@ -457,6 +461,17 @@
             loading.style.display='block';
             body.style.display='none'; body.textContent='';
             regenBtn.classList.add('disabled');
+            if(perfLine){ perfLine.style.display='none'; perfLine.textContent=''; }
+          }
+          function showPerf(totalMs, meta){
+            if(!isDev || !perfLine) return;
+            const s=(n)=> (n/1000).toFixed(2)+'s';
+            let line=`速度: 合計 ${s(totalMs)}`;
+            if(meta && typeof meta.gas_ms==='number') line += ` / GAS ${s(meta.gas_ms)}`;
+            if(meta && typeof meta.ai_ms==='number')  line += ` / AI ${s(meta.ai_ms)}`;
+            perfLine.textContent=line;
+            perfLine.style.display='block';
+            console.log('[necotubu] perf', {total_ms:totalMs, timings:meta||null});
           }
 
           function ctxBase(){
@@ -480,7 +495,9 @@
             if(prevSaved && !forceRegen){
               body.textContent = prevSaved;
               loading.style.display='none'; body.style.display='block';
-              regenBtn.classList.remove('disabled'); return;
+              regenBtn.classList.remove('disabled');
+              if(isDev){ showPerf(0); }
+              return;
             }
 
             startLoading();
@@ -489,12 +506,14 @@
             const ctx = ctxBase();
             const basePrompt = promptBuilder(ctx);
 
+            const t0=performance.now();
             try{
-              let finalText='';
+              let finalText=''; let lastData=null;
               for(let i=0;i<3;i++){
                 const add = i? '\n【追加条件】前回までと似た言い回しを避け、新しい語彙で書き直してください（強度:'+i+'）。' : '';
                 const data = await callAI(basePrompt + add, {maxTokens:200}); // 軽量化
-                let draft = sanitize(String(pickTextFromAI(data)||''));
+                lastData=data;
+                let draft = sanitize(String(pickTextFromAI(data)||'')); 
                 if(!/[。！？]$/.test(draft)) draft+='。';
                 draft = dedupeEndings(draft);
 
@@ -509,7 +528,13 @@
               finalText = clamp(finalText, TWEET_MAX);
               saveAndShow(ymd, finalText);
 
+              const totalMs=performance.now()-t0;
+              const meta=(lastData && (lastData.timings||lastData._timings||null))||null; // ←GAS側で後日追加予定
+              showPerf(totalMs, meta);
+
             }catch(e){
+              const totalMs=performance.now()-t0;
+              showPerf(totalMs, null);
               const msg = (e && e.name==='AbortError') ? '少し時間がかかっています。通信状況を確認して、もう一度ためしてください。'
                         : 'AI生成に失敗しました。設定やネットワークをご確認ください。' + (e && e.message ? '（詳細: ' + e.message + '）' : '');
               showErr(msg);
