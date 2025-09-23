@@ -14,19 +14,19 @@
       FEATURE_FLAGS:{ diaryAutoSave:true }, STORAGE_NS:UNIFIED_NS,
       FIREBASE:{ apiKey:"",authDomain:"",projectId:"",storageBucket:"",messagingSenderId:"",appId:"" },
       ALLOWLIST_EMAILS:[], BETA_PASSCODE:"nekotubu-beta",
-      GEMINI:{ API_KEY:DEFAULT_GEMINI_API_KEY, MODEL:"deepseek-chat", MAX_TOKENS:180, TEMPERATURE:1.05 }
+      GEMINI:{ API_KEY:DEFAULT_GEMINI_API_KEY, MODEL:"deepseek-chat", MAX_TOKENS:180, TEMPERATURE:0.90 }
     },
     stg:  { NAME:"stg",  API_BASE_URL:GAS_PROXY_URL, TIMEOUT_MS:20000,
       FEATURE_FLAGS:{ diaryAutoSave:true }, STORAGE_NS:UNIFIED_NS,
       FIREBASE:{ apiKey:"",authDomain:"",projectId:"",storageBucket:"",messagingSenderId:"",appId:"" },
       ALLOWLIST_EMAILS:["syonn@mac.com","syonn3@gmail.com"], BETA_PASSCODE:"nekotubu-beta",
-      GEMINI:{ API_KEY:"", MODEL:"deepseek-chat", MAX_TOKENS:180, TEMPERATURE:1.05 }
+      GEMINI:{ API_KEY:"", MODEL:"deepseek-chat", MAX_TOKENS:180, TEMPERATURE:0.90 }
     },
     prod: { NAME:"prod", API_BASE_URL:GAS_PROXY_URL, TIMEOUT_MS:20000,
       FEATURE_FLAGS:{ diaryAutoSave:true }, STORAGE_NS:UNIFIED_NS,
       FIREBASE:{ apiKey:"",authDomain:"",projectId:"",storageBucket:"",messagingSenderId:"",appId:"" },
       ALLOWLIST_EMAILS:[], BETA_PASSCODE:"",
-      GEMINI:{ API_KEY:DEFAULT_GEMINI_API_KEY, MODEL:"deepseek-chat", MAX_TOKENS:180, TEMPERATURE:1.05 }
+      GEMINI:{ API_KEY:DEFAULT_GEMINI_API_KEY, MODEL:"deepseek-chat", MAX_TOKENS:180, TEMPERATURE:0.90 }
     }
   };
 
