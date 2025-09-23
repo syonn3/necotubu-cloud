@@ -154,6 +154,56 @@
           out=out.replace(/(だよ|だね|なの|かな)。(?:\s*)(だよ|だね|なの|かな)。(?!\S)/g,'$1。');
           return out;
         }
+
+        // ★性別×月齢で語尾をほんの少し調整（テンプレ禁止→確率で控えめに）
+        function adjustToneByGenderAge(text, gender, ageMonths){
+          let s=String(text||''); if(!s) return s;
+          const g=(gender==='male')?'male':(gender==='female'?'female':'other');
+          const m=Math.max(0, Number(ageMonths)||0);
+          // 効き方：0-11m 弱 / 12-23m 中 / 24m+ 強
+          const strength = m<12 ? 0.25 : (m<24 ? 0.55 : 0.90);
+
+          const parts=s.split(/(?<=[。！？])/);
+          function choose(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
+
+          function tweak(seg){
+            if(!seg) return seg;
+            const tail=(seg.match(/[。！？]+$/)||[''])[0];
+            let core=seg.slice(0, seg.length - tail.length);
+
+            // たまにだけ変更（テンプレ回避）
+            if(Math.random()>strength) return seg;
+
+            const replsMale = [
+              [/だよ(?=$)/,'だぞ'],
+              [/だよ(?=([。！？」』]|$))/, choose(['だぞ','だな'])],
+              [/だね(?=([。！？」』]|$))/, 'だな'],
+              [/かな(?=([。！？」』]|$))/, choose(['かもな','かなぁ'])],
+              [/かも(?=([。！？」』]|$))/, 'かもな'],
+              [/よ(?=([。！？」』]|$))/, choose(['だな','ぞ'])]
+            ];
+            const replsFemale = [
+              [/だよ(?=([。！？」』]|$))/, choose(['だよね','だもん'])],
+              [/だね(?=([。！？」』]|$))/, 'だよね'],
+              [/かな(?=([。！？」』]|$))/, choose(['かなぁ','かもね'])],
+              [/かも(?=([。！？」』]|$))/, 'かもね'],
+              [/よ(?=([。！？」』]|$))/, 'よね']
+            ];
+            const replsOther = []; // 変更なし
+
+            const rules = g==='male'?replsMale : g==='female'?replsFemale : replsOther;
+            for(const [re, rep] of rules){
+              core = core.replace(re, (typeof rep==='function')? rep() : rep);
+            }
+            // 二重語尾の抑制
+            core = core.replace(/(だよね)(ね)+$/,'$1').replace(/(だな)(な)+$/,'$1');
+            return core + tail;
+          }
+
+          s = parts.map(tweak).join('');
+          return s;
+        }
+
         function similarity(a,b){
           a=String(a||''); b=String(b||''); if(!a||!b) return 0;
           const grams=(s)=>{ const g=new Set(); for(let i=0;i<s.length-1;i++) g.add(s.slice(i,i+2)); return g; };
@@ -173,7 +223,7 @@
           catch{ return ''; }
         }
         function recentAllTweets(limit=60){
-          const res=[];
+          const res=[]; 
           for(let i=0;i<localStorage.length;i++){
             const k=localStorage.key(i);
             if(k && k.startsWith(`${NS}:tw:`)){
@@ -296,7 +346,7 @@
         }
 
         // POSTだけ
-        function callAI(prompt, {maxTokens=180}={}){ // ← デフォルト 180
+        function callAI(prompt, {maxTokens=180}={}){
           const apiBase = getApiBase();
           const model = getGeminiModel();
           const temperature = getTemp();
@@ -323,6 +373,7 @@
           const hiraRate = hiraRateForMonths(ageMonths);
           const babyPower = babyTalkStrength(ageMonths);
 
+          // 主人コメントへの扱い
           const mustCare = hasNegative(note);
           const careRule = mustCare
             ? '- 主人のひとことがネガティブなら、必ず心配・慰めのニュアンスで短く寄りそう。'
@@ -406,7 +457,6 @@
 
           document.getElementById('cat-breed').textContent='猫種: '+(cat.breed||'-');
           document.getElementById('cat-personality').textContent='性格: '+(cat.personality||'-');
-          document.getElementById('cat-fav').textContent='特徴: '+(cat.favorites||'-');
           const TERR_LABEL={ indoor:'完全家ネコ', outdoor:'外出可ネコ', stray:'野良ネコ', fantasy:'妄想ネコ' };
           document.getElementById('cat-territory').textContent='テリトリー: '+(TERR_LABEL[String(cat.territory||'').toLowerCase()]||'-');
 
@@ -511,11 +561,13 @@
               let finalText=''; let lastData=null;
               for(let i=0;i<3;i++){
                 const add = i? '\n【追加条件】前回までと似た言い回しを避け、新しい語彙で書き直してください（強度:'+i+'）。' : '';
-                const data = await callAI(basePrompt + add, {maxTokens:180}); // ← 呼び出しも 180
+                const data = await callAI(basePrompt + add, {maxTokens:180});
                 lastData=data;
                 let draft = sanitize(String(pickTextFromAI(data)||'')); 
                 if(!/[。！？]$/.test(draft)) draft+='。';
                 draft = dedupeEndings(draft);
+                // ★ここで性別×月齢の語尾微調整
+                draft = adjustToneByGenderAge(draft, cat.gender, ageMonths);
 
                 const simPrev = prevSaved ? similarity(draft, prevSaved) : 0;
                 const simLast = lastGenerated ? similarity(draft, lastGenerated) : 0;
