@@ -122,10 +122,11 @@
         /* ====== 定数・ユーティリティ ====== */
         const CATS_KEY='necotubu_cats';
         const NS=(window.APP_CONFIG&&window.APP_CONFIG.STORAGE_NS)||'necotubu_v1';
-        const HOME_NOTE = NS+':home:note';
-        const HOME_GENDER = NS+':home:gender';
-        const HOME_WEATH = NS+':home:weather';
-        const HOME_DATE  = NS+':home:date';
+        const HOME_NOTE   = NS+':home:note';
+        const HOME_GENDER = NS+':home:gender';          // （既存）飼い主の性別ラフ
+        const HOME_WEATH  = NS+':home:weather';
+        const HOME_DATE   = NS+':home:date';
+        const HOME_OWNER_CALL = NS+':home:ownerCall';    // （新規）ユーザーが選んだ呼び方（例：とうさん/パパ/おとう etc）
         const TWEET_MAX = 320;
 
         function qs(){ return new URLSearchParams(location.search||''); }
@@ -155,12 +156,11 @@
           return out;
         }
 
-        // ★性別×月齢で語尾をほんの少し調整（テンプレ禁止→確率で控えめに）
+        // ── 仕上げ：性別×月齢で語尾をほんの少し調整（テンプレ化を避け控えめ）
         function adjustToneByGenderAge(text, gender, ageMonths){
           let s=String(text||''); if(!s) return s;
           const g=(gender==='male')?'male':(gender==='female'?'female':'other');
           const m=Math.max(0, Number(ageMonths)||0);
-          // 効き方：0-11m 弱 / 12-23m 中 / 24m+ 強
           const strength = m<12 ? 0.25 : (m<24 ? 0.55 : 0.90);
 
           const parts=s.split(/(?<=[。！？])/);
@@ -171,36 +171,61 @@
             const tail=(seg.match(/[。！？]+$/)||[''])[0];
             let core=seg.slice(0, seg.length - tail.length);
 
-            // たまにだけ変更（テンプレ回避）
             if(Math.random()>strength) return seg;
 
             const replsMale = [
-              [/だよ(?=$)/,'だぞ'],
               [/だよ(?=([。！？」』]|$))/, choose(['だぞ','だな'])],
               [/だね(?=([。！？」』]|$))/, 'だな'],
               [/かな(?=([。！？」』]|$))/, choose(['かもな','かなぁ'])],
-              [/かも(?=([。！？」』]|$))/, 'かもな'],
-              [/よ(?=([。！？」』]|$))/, choose(['だな','ぞ'])]
+              [/かも(?=([。！？」』]|$))/, 'かもな']
             ];
             const replsFemale = [
               [/だよ(?=([。！？」』]|$))/, choose(['だよね','だもん'])],
               [/だね(?=([。！？」』]|$))/, 'だよね'],
               [/かな(?=([。！？」』]|$))/, choose(['かなぁ','かもね'])],
-              [/かも(?=([。！？」』]|$))/, 'かもね'],
-              [/よ(?=([。！？」』]|$))/, 'よね']
+              [/かも(?=([。！？」』]|$))/, 'かもね']
             ];
-            const replsOther = []; // 変更なし
+            const rules = g==='male'?replsMale : g==='female'?replsFemale : [];
 
-            const rules = g==='male'?replsMale : g==='female'?replsFemale : replsOther;
             for(const [re, rep] of rules){
               core = core.replace(re, (typeof rep==='function')? rep() : rep);
             }
-            // 二重語尾の抑制
             core = core.replace(/(だよね)(ね)+$/,'$1').replace(/(だな)(な)+$/,'$1');
             return core + tail;
           }
+          return parts.map(tweak).join('');
+        }
 
-          s = parts.map(tweak).join('');
+        // ── 仕上げ：固い語尾をやわらかく（哲学=クールのみ少し残す）
+        function softenHardEndings(text, persona, gender){
+          let s=String(text||''); if(!s) return s;
+          const cool = (persona==='cool');
+          const keepRate = cool ? 0.40 : 0.08; // クールはたまに残す／他はほぼ置換
+          function maybe(re, rep){
+            s = s.replace(re, (m)=> (Math.random()<keepRate ? m : (typeof rep==='function'? rep(): rep)));
+          }
+          const maleSoft = ()=> (Math.random()<0.5?'だな':'だよ');
+          const femaleSoft = ()=> (Math.random()<0.5?'だよね':'だよ');
+          const soft = gender==='male'? maleSoft : gender==='female'? femaleSoft : (()=>'だよ');
+
+          maybe(/なのだ(?=([。！？」』]|$))/g, ()=> (gender==='male'?'なんだな':'なんだよね'));
+          maybe(/である(?=([。！？」』]|$))/g, ()=> soft());
+          maybe(/だが(?=([、。！？」』]|$))/g, 'けど');
+          maybe(/だと思う(?=([。！？」』]|$))/g, ()=> (Math.random()<0.5?'気がする':'かも'));
+          maybe(/だろう(?=([。！？」』]|$))/g, ()=> (Math.random()<0.5?'かも':'かな'));
+          return s;
+        }
+
+        // ── 野良専用：不自然な室内語・呼称を抑制
+        function fixStrayPhrases(text){
+          let s=String(text||''); if(!s) return s;
+          s = s.replace(/(飼い主|ご主人|主人|おうちの人|家の人)/g, '人');
+          // 室内っぽさを薄める：強引な変換は避け、よくある表現のみ控えめに
+          s = s.replace(/窓辺/g, '塀のうえ');
+          s = s.replace(/窓の外/g, '空のほう');
+          s = s.replace(/ソファ/g, '段ボール');
+          s = s.replace(/膝の上/g, 'ひなた');
+          s = s.replace(/部屋/g, '路地');
           return s;
         }
 
@@ -246,14 +271,18 @@
           if(/ツン|クール|気高|孤高/.test(s)) return 'cool';
           return 'neutral';
         }
-        function ownerNameByPersona(gender, persona, territory){
-          if(String(territory||'').toLowerCase()==='stray'){
+
+        // 呼称：ユーザー選択＞既定ロジック（野良は固定括り）
+        function ownerNameByPersona(gender, persona, territory, override){
+          const terr=String(territory||'').toLowerCase();
+          if(terr==='stray'){ // 野良は括りで固定
             if(gender==='male') return 'おじちゃん';
             if(gender==='female') return 'おねえさん';
             return '人';
           }
-          const base = gender==='male' ? ['おとう','とうさん','パパ','お父さん']
-                    : gender==='female' ? ['おかあ','かあさん','ママ','お母さん']
+          const ov=String(override||'').trim(); if(ov) return ov.slice(0,8); // 安全に短く
+          const base = gender==='male' ? ['おとう','とうさん','パパ','おとうさん']
+                    : gender==='female' ? ['おかあ','かあさん','ママ','おかあさん']
                     : ['ごしゅじん','おうちのひと'];
           if(persona==='energetic') return base[Math.floor(Math.random()*3)];
           if(persona==='cool') return base.slice(-2)[Math.floor(Math.random()*2)];
@@ -264,15 +293,15 @@
         // 年齢→ひらがな率・赤ちゃん言葉強度
         function hiraRateForMonths(m){
           if(m<=0) return 1.0;
-          if(m<6) return 1.0;                   // 0-5ヶ月: 100%
-          if(m<12) return 1.0 - (m-6)*0.10;     // 6-11ヶ月: 100%→40%に線形
-          if(m<24) return Math.max(0, 0.40 - (m-12)*(0.40/12)); // 12-23ヶ月: 40%→0%
+          if(m<6) return 1.0;
+          if(m<12) return 1.0 - (m-6)*0.10;
+          if(m<24) return Math.max(0, 0.40 - (m-12)*(0.40/12));
           return 0;
         }
         function babyTalkStrength(m){
-          if(m<6) return 1.0;       // 最大
-          if(m<12) return 0.6;      // 中
-          if(m<24) return (24-m)/24;// 1.0→0へ緩やか
+          if(m<6) return 1.0;
+          if(m<12) return 0.6;
+          if(m<24) return (24-m)/24;
           return 0.0;
         }
 
@@ -307,11 +336,11 @@
           return '';
         }
 
-        /* ====== DeepSeek（GAS）呼び出し：POSTのみ ====== */
+        /* ====== DeepSeek（GAS）呼び出し：POSTのみ（CORS対策：text/plain） ====== */
         function getApiBase(){
           const base = (window.APP_CONFIG && window.APP_CONFIG.API_BASE_URL) || '';
           if(!base) throw new Error('AI API の接続先が未設定です（config.js の API_BASE_URL を確認）');
-          return base.replace(/\/+$/,''); // 末尾スラッシュ排除
+          return base.replace(/\/+$/,'');
         }
         function getGeminiModel(){
           const cfg = window.APP_CONFIG || {};
@@ -320,7 +349,6 @@
         function getTemp(){ return (window.APP_CONFIG && window.APP_CONFIG.GEMINI && window.APP_CONFIG.GEMINI.TEMPERATURE) || 0.9; }
         function getTimeout(){ return (window.APP_CONFIG && window.APP_CONFIG.TIMEOUT_MS) || 12000; }
 
-        // fetch with timeout（★CORS対策：text/plain で送る）
         async function callPost(apiBase, prompt, {model, temperature, maxTokens}){
           const payload = {
             model,
@@ -344,37 +372,46 @@
             clearTimeout(t);
           }
         }
-
-        // POSTだけ
         function callAI(prompt, {maxTokens=180}={}){
           const apiBase = getApiBase();
           const model = getGeminiModel();
           const temperature = getTemp();
           return callPost(apiBase, prompt, {model, temperature, maxTokens});
         }
-
         function pickTextFromAI(data){
           return (data && data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0] && data.candidates[0].content.parts[0].text) || '';
         }
 
-        // ネガティブ検知（必ずフォロー）
+        // ネガ判定
         const NEG_WORDS = ['しんど','疲れ','つかれ','嫌','やめたい','むり','つら','さびし','かなしい','つかれた','もうだめ'];
         function hasNegative(s){ s=String(s||''); return NEG_WORDS.some(w=> s.includes(w)); }
 
         function promptBuilder(ctx){
-          const {name, ageYears, ageMonths, personality, territory, weatherKey, note, ownerGender} = ctx;
+          const {name, ageYears, ageMonths, personality, territory, weatherKey, note, ownerGender, ownerCall} = ctx;
           const now2=todayJST();
           const month = now2.getMonth()+1, hour = now2.getHours(), day = now2.getDate(), wday = now2.getDay();
           const persona = normPersonality(personality||'');
           const hints = seasonalHints(month,hour,wday,weatherKey);
           const ev = eventWord(month, day);
-          const ownerLabel = ownerNameByPersona(ownerGender, persona, territory);
-
+          const ownerLabel = ownerNameByPersona(ownerGender, persona, territory, ownerCall);
           const hiraRate = hiraRateForMonths(ageMonths);
           const babyPower = babyTalkStrength(ageMonths);
-
-          // 主人コメントへの扱い
           const mustCare = hasNegative(note);
+
+          const terr = String(territory||'').toLowerCase();
+          const strayRules = terr==='stray'
+            ? [
+                '- 本文で『飼い主』『主人』『おうちの人』は使わない（言うときは「人」「おじちゃん」「おねえさん」）。',
+                '- 室内前提の描写（窓辺・ソファ・膝の上など）は避け、外の情景（路地・軒下・塀のうえ・電灯の下など）に寄せる。'
+              ].join('\n')
+            : '';
+
+          const toneRules = [
+            '- 固すぎる語尾（「なのだ」「である」「〜だが」「〜だと思う」「〜だろう」）は使わない（クール性格のみ少量は可）。',
+            '- むずかしい比喩は0〜1個まで。体の感覚語（におい・ひげ・耳・肉球など）を1つ入れる。',
+            '- 視点は猫らしく、性格のクセを会話ににじませる（やんちゃ=体感先行／おだやか=やわらか／甘えんぼ=呼びかけ多め／マイペース=のんびり／クール=すこしだけ硬め）。'
+          ].join('\n');
+
           const careRule = mustCare
             ? '- 主人のひとことがネガティブなら、必ず心配・慰めのニュアンスで短く寄りそう。'
             : '- 主人のひとことには3回に1回ていど軽く触れる。';
@@ -391,6 +428,8 @@
             '- 「にゃ」「にゃん」などは禁止。具体的な年月日・曜日・時刻も禁止（抽象表現のみ）。',
             '- 一人称は常に自分の名前「'+name+'」。季節・時間帯・天気のニュアンスを必ず入れる。',
             careRule,
+            toneRules,
+            strayRules,
             '- 事実不明の体験談は書かない。過去や他の猫と似すぎる表現は避ける。',
             '出力：1段落のみ。最大'+TWEET_MAX+'文字程度。句読点は自然に。'
           ].join('\n');
@@ -438,6 +477,7 @@
             av.appendChild(im);
           } else { av.textContent=firstChar(cat.name||'？'); av.style.background=colFor(cat.name||'?'); }
 
+          // 年齢表示（既存ロジック）
           const ageEl=document.getElementById('cat-age');
           if(ageYears!=null){
             if(bday){
@@ -459,6 +499,7 @@
           document.getElementById('cat-personality').textContent='性格: '+(cat.personality||'-');
           const TERR_LABEL={ indoor:'完全家ネコ', outdoor:'外出可ネコ', stray:'野良ネコ', fantasy:'妄想ネコ' };
           document.getElementById('cat-territory').textContent='テリトリー: '+(TERR_LABEL[String(cat.territory||'').toLowerCase()]||'-');
+          document.getElementById('cat-fav').textContent='特徴: '+(cat.favorites||'-');
 
           const dstr=localStorage.getItem(HOME_DATE)||''; const weath=(localStorage.getItem(HOME_WEATH)||'').toLowerCase();
           let disp=dstr;
@@ -525,6 +566,7 @@
           }
 
           function ctxBase(){
+            const ownerCall = (localStorage.getItem(HOME_OWNER_CALL)||'').trim(); // ← 将来のUIで設定予定
             return {
               name: cat.name||'ネコ',
               ageYears,
@@ -533,7 +575,8 @@
               territory: String(cat.territory||''),
               weatherKey: weath,
               note: localStorage.getItem(HOME_NOTE)||'',
-              ownerGender: localStorage.getItem(HOME_GENDER)||''
+              ownerGender: localStorage.getItem(HOME_GENDER)||'',
+              ownerCall
             };
           }
 
@@ -566,9 +609,15 @@
                 let draft = sanitize(String(pickTextFromAI(data)||'')); 
                 if(!/[。！？]$/.test(draft)) draft+='。';
                 draft = dedupeEndings(draft);
-                // ★ここで性別×月齢の語尾微調整
-                draft = adjustToneByGenderAge(draft, cat.gender, ageMonths);
 
+                // 後処理：口調と野良補正
+                draft = adjustToneByGenderAge(draft, cat.gender, ageMonths);
+                draft = softenHardEndings(draft, normPersonality(cat.personality||''), cat.gender);
+                if(String(cat.territory||'').toLowerCase()==='stray'){
+                  draft = fixStrayPhrases(draft);
+                }
+
+                // 類似チェック
                 const simPrev = prevSaved ? similarity(draft, prevSaved) : 0;
                 const simLast = lastGenerated ? similarity(draft, lastGenerated) : 0;
                 const simOthers = Math.max(...others.map(o=> similarity(draft,o)||0),0);
