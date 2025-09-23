@@ -237,7 +237,7 @@
           }
           if(hour>=5 && hour<=7 && month>=3 && month<=5) hints.push('朝焼けがきれい');
           if(hour>=11&&hour<=14){
-            if(month>=7 && month<=8) hints.push('日差しが強い');
+            if(month>=7 &&月<=8) hints.push('日差しが強い');
             if(month>=12||month<=2) hints.push('お昼でも空気がひやり');
           }
           if(weatherKey==='sunny')  hints.push('日差しがあたたかい');
@@ -270,20 +270,21 @@
         function getTemp(){ return (window.APP_CONFIG && window.APP_CONFIG.GEMINI && window.APP_CONFIG.GEMINI.TEMPERATURE) || 0.9; }
         function getTimeout(){ return (window.APP_CONFIG && window.APP_CONFIG.TIMEOUT_MS) || 12000; }
 
-        // fetch with timeout
+        // fetch with timeout（★CORS対策：text/plain で送る）
         async function callPost(apiBase, prompt, {model, temperature, maxTokens}){
-          const body = {
+          const payload = {
             model,
             contents: [{ role: "user", parts: [{ text: String(prompt||'') }]}],
             temperature, maxTokens
           };
+          const bodyText = JSON.stringify(payload);
           const ctrl = new AbortController();
           const t = setTimeout(()=>ctrl.abort(), getTimeout());
           try{
             const res = await fetch(apiBase + '/exec', {
               method:"POST",
-              headers:{ "Content-Type":"application/json" },
-              body: JSON.stringify(body),
+              headers:{ "Content-Type":"text/plain" }, // ← ここを application/json から変更
+              body: bodyText,
               signal: ctrl.signal
             });
             const data = await res.json().catch(()=> ({}));
@@ -322,7 +323,6 @@
           const hiraRate = hiraRateForMonths(ageMonths);
           const babyPower = babyTalkStrength(ageMonths);
 
-          // 主人コメントへの扱い
           const mustCare = hasNegative(note);
           const careRule = mustCare
             ? '- 主人のひとことがネガティブなら、必ず心配・慰めのニュアンスで短く寄りそう。'
@@ -511,7 +511,7 @@
               let finalText=''; let lastData=null;
               for(let i=0;i<3;i++){
                 const add = i? '\n【追加条件】前回までと似た言い回しを避け、新しい語彙で書き直してください（強度:'+i+'）。' : '';
-                const data = await callAI(basePrompt + add, {maxTokens:200}); // 軽量化
+                const data = await callAI(basePrompt + add, {maxTokens:200});
                 lastData=data;
                 let draft = sanitize(String(pickTextFromAI(data)||'')); 
                 if(!/[。！？]$/.test(draft)) draft+='。';
@@ -529,7 +529,7 @@
               saveAndShow(ymd, finalText);
 
               const totalMs=performance.now()-t0;
-              const meta=(lastData && (lastData.timings||lastData._timings||null))||null; // ←GAS側で後日追加予定
+              const meta=(lastData && (lastData.timings||lastData._timings||null))||null;
               showPerf(totalMs, meta);
 
             }catch(e){
