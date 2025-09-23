@@ -123,10 +123,10 @@
         const CATS_KEY='necotubu_cats';
         const NS=(window.APP_CONFIG&&window.APP_CONFIG.STORAGE_NS)||'necotubu_v1';
         const HOME_NOTE   = NS+':home:note';
-        const HOME_GENDER = NS+':home:gender';          // （既存）飼い主の性別ラフ
+        const HOME_GENDER = NS+':home:gender';
         const HOME_WEATH  = NS+':home:weather';
         const HOME_DATE   = NS+':home:date';
-        const HOME_OWNER_CALL = NS+':home:ownerCall';    // （新規）ユーザーが選んだ呼び方（例：とうさん/パパ/おとう etc）
+        const HOME_OWNER_CALL = NS+':home:ownerCall'; // ← index_register.html 側で設定、ここでは読むだけ
         const TWEET_MAX = 320;
 
         function qs(){ return new URLSearchParams(location.search||''); }
@@ -156,23 +156,19 @@
           return out;
         }
 
-        // ── 仕上げ：性別×月齢で語尾をほんの少し調整（テンプレ化を避け控えめ）
+        // ── 性別×月齢で語尾を控えめに調整（テンプレ化防止のため確率適用）
         function adjustToneByGenderAge(text, gender, ageMonths){
           let s=String(text||''); if(!s) return s;
           const g=(gender==='male')?'male':(gender==='female'?'female':'other');
           const m=Math.max(0, Number(ageMonths)||0);
           const strength = m<12 ? 0.25 : (m<24 ? 0.55 : 0.90);
-
           const parts=s.split(/(?<=[。！？])/);
           function choose(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
-
           function tweak(seg){
             if(!seg) return seg;
             const tail=(seg.match(/[。！？]+$/)||[''])[0];
             let core=seg.slice(0, seg.length - tail.length);
-
             if(Math.random()>strength) return seg;
-
             const replsMale = [
               [/だよ(?=([。！？」』]|$))/, choose(['だぞ','だな'])],
               [/だね(?=([。！？」』]|$))/, 'だな'],
@@ -186,21 +182,18 @@
               [/かも(?=([。！？」』]|$))/, 'かもね']
             ];
             const rules = g==='male'?replsMale : g==='female'?replsFemale : [];
-
-            for(const [re, rep] of rules){
-              core = core.replace(re, (typeof rep==='function')? rep() : rep);
-            }
+            for(const [re, rep] of rules){ core = core.replace(re, (typeof rep==='function')? rep(): rep); }
             core = core.replace(/(だよね)(ね)+$/,'$1').replace(/(だな)(な)+$/,'$1');
             return core + tail;
           }
           return parts.map(tweak).join('');
         }
 
-        // ── 仕上げ：固い語尾をやわらかく（哲学=クールのみ少し残す）
+        // ── 固い語尾・硬い言い回しをやわらげる（クールだけ少し残す）
         function softenHardEndings(text, persona, gender){
           let s=String(text||''); if(!s) return s;
           const cool = (persona==='cool');
-          const keepRate = cool ? 0.40 : 0.08; // クールはたまに残す／他はほぼ置換
+          const keepRate = cool ? 0.35 : 0.06; // クールは少し残す／他はほぼ置換
           function maybe(re, rep){
             s = s.replace(re, (m)=> (Math.random()<keepRate ? m : (typeof rep==='function'? rep(): rep)));
           }
@@ -208,24 +201,61 @@
           const femaleSoft = ()=> (Math.random()<0.5?'だよね':'だよ');
           const soft = gender==='male'? maleSoft : gender==='female'? femaleSoft : (()=>'だよ');
 
+          // 語尾系
           maybe(/なのだ(?=([。！？」』]|$))/g, ()=> (gender==='male'?'なんだな':'なんだよね'));
           maybe(/である(?=([。！？」』]|$))/g, ()=> soft());
           maybe(/だが(?=([、。！？」』]|$))/g, 'けど');
           maybe(/だと思う(?=([。！？」』]|$))/g, ()=> (Math.random()<0.5?'気がする':'かも'));
           maybe(/だろう(?=([。！？」』]|$))/g, ()=> (Math.random()<0.5?'かも':'かな'));
+
+          // 硬い単語
+          s = s.replace(/思案する/g, (Math.random()<0.5?'考えちゃう':'迷っちゃう'));
+          s = s.replace(/心象/g, 'きぶん');
+          s = s.replace(/結局、/g, (Math.random()<0.5?'それで、':'じゃあ、'));
+          s = s.replace(/ことにした(?=([。！？」』]|$))/g, (Math.random()<0.5?'ことにしたよ':'にしようかな'));
           return s;
         }
 
-        // ── 野良専用：不自然な室内語・呼称を抑制
+        // ── 野良の不自然描写をやさしく置換（室内語→外の情景）
         function fixStrayPhrases(text){
           let s=String(text||''); if(!s) return s;
           s = s.replace(/(飼い主|ご主人|主人|おうちの人|家の人)/g, '人');
-          // 室内っぽさを薄める：強引な変換は避け、よくある表現のみ控えめに
           s = s.replace(/窓辺/g, '塀のうえ');
           s = s.replace(/窓の外/g, '空のほう');
-          s = s.replace(/ソファ/g, '段ボール');
-          s = s.replace(/膝の上/g, 'ひなた');
           s = s.replace(/部屋/g, '路地');
+          s = s.replace(/膝の上/g, 'そば');
+          s = s.replace(/ソファ/g, '段ボール');
+          s = s.replace(/ベッド/g, 'ひさしの影');
+          s = s.replace(/カーテン/g, '看板の影');
+          return s;
+        }
+
+        // ── 野良×甘えんぼ：AIが入れ忘れたら“つかずはなれずの甘え”を一文だけ補う（固定文回避のため候補をランダム）
+        function ensureStrayAffection(text, persona, territory, ageMonths){
+          let s=String(text||''); if(!s) return s;
+          const terr=String(territory||'').toLowerCase();
+          if(terr!=='stray') return s;
+
+          // すでに甘えシグナルがあるか？
+          const hasCue = /(しっぽ|尻尾|耳を|耳だけ|のど|喉|ごろ|すり|すっと|そば|近づ|丸く|足もと|足元|鳴|小さく)/.test(s);
+          if(hasCue) return s;
+
+          // 甘えんぼ中心に、他の性格でもごく短い補足のみ
+          const m=Math.max(0, Number(ageMonths)||0);
+          const strength = (persona==='clingy') ? (m<12?0.6:0.9) : 0.35; // 甘えん坊なら入れやすく、他は控えめ
+          if(Math.random()>strength) return s;
+
+          const candidates = [
+            '少し距離をあけつつ、しっぽをそっと立てて合図してみたよ',
+            '耳だけ向けて「ここにいるよ」と伝えてみた',
+            '足もとで小さくまとまって、安心のしるしを置いておく',
+            'のどを小さく鳴らして、近いけど近づきすぎない感じにした',
+            'すりっと一歩だけ寄って、様子をうかがう',
+            '視線を合わせてから、ゆっくり瞬きであいさつした'
+          ];
+          const add = candidates[Math.floor(Math.random()*candidates.length)];
+          // 長さに余裕があるときだけ足す（1段落を維持）
+          if((s.length + add.length + 1) <= TWEET_MAX) s = s.replace(/\s*$/, '') + (s.endsWith('。')?'':'。') + add + '。';
           return s;
         }
 
@@ -272,15 +302,15 @@
           return 'neutral';
         }
 
-        // 呼称：ユーザー選択＞既定ロジック（野良は固定括り）
+        // 呼称：ユーザー選択（HOME_OWNER_CALL）＞既定ロジック（※野良は固定括り）
         function ownerNameByPersona(gender, persona, territory, override){
           const terr=String(territory||'').toLowerCase();
-          if(terr==='stray'){ // 野良は括りで固定
+          if(terr==='stray'){
             if(gender==='male') return 'おじちゃん';
             if(gender==='female') return 'おねえさん';
             return '人';
           }
-          const ov=String(override||'').trim(); if(ov) return ov.slice(0,8); // 安全に短く
+          const ov=String(override||'').trim(); if(ov) return ov.slice(0,8);
           const base = gender==='male' ? ['おとう','とうさん','パパ','おとうさん']
                     : gender==='female' ? ['おかあ','かあさん','ママ','おかあさん']
                     : ['ごしゅじん','おうちのひと'];
@@ -316,7 +346,7 @@
           }
           if(hour>=5 && hour<=7 && month>=3 && month<=5) hints.push('朝焼けがきれい');
           if(hour>=11&&hour<=14){
-            if(month>=7 && month<=8) hints.push('日差しが強い');
+            if(month>=7 &&月<=8) hints.push('日差しが強い');
             if(month>=12||month<=2) hints.push('お昼でも空気がひやり');
           }
           if(weatherKey==='sunny')  hints.push('日差しがあたたかい');
@@ -402,7 +432,8 @@
           const strayRules = terr==='stray'
             ? [
                 '- 本文で『飼い主』『主人』『おうちの人』は使わない（言うときは「人」「おじちゃん」「おねえさん」）。',
-                '- 室内前提の描写（窓辺・ソファ・膝の上など）は避け、外の情景（路地・軒下・塀のうえ・電灯の下など）に寄せる。'
+                '- 室内前提の描写（窓辺・ソファ・膝の上・ベッド・カーテンなど）は避け、外の情景（路地・軒下・塀のうえ・看板の影など）に寄せる。',
+                '- 甘えんぼでも、つかずはなれずの距離感で好意を示すしぐさを入れると自然（例：しっぽを立てる・耳だけ向ける・小さく喉を鳴らす・足もとで丸くなる など）。'
               ].join('\n')
             : '';
 
@@ -477,7 +508,7 @@
             av.appendChild(im);
           } else { av.textContent=firstChar(cat.name||'？'); av.style.background=colFor(cat.name||'?'); }
 
-          // 年齢表示（既存ロジック）
+          // 年齢表示
           const ageEl=document.getElementById('cat-age');
           if(ageYears!=null){
             if(bday){
@@ -497,9 +528,9 @@
 
           document.getElementById('cat-breed').textContent='猫種: '+(cat.breed||'-');
           document.getElementById('cat-personality').textContent='性格: '+(cat.personality||'-');
+          document.getElementById('cat-fav').textContent='特徴: '+(cat.favorites||'-');
           const TERR_LABEL={ indoor:'完全家ネコ', outdoor:'外出可ネコ', stray:'野良ネコ', fantasy:'妄想ネコ' };
           document.getElementById('cat-territory').textContent='テリトリー: '+(TERR_LABEL[String(cat.territory||'').toLowerCase()]||'-');
-          document.getElementById('cat-fav').textContent='特徴: '+(cat.favorites||'-');
 
           const dstr=localStorage.getItem(HOME_DATE)||''; const weath=(localStorage.getItem(HOME_WEATH)||'').toLowerCase();
           let disp=dstr;
@@ -566,7 +597,7 @@
           }
 
           function ctxBase(){
-            const ownerCall = (localStorage.getItem(HOME_OWNER_CALL)||'').trim(); // ← 将来のUIで設定予定
+            const ownerCall = (localStorage.getItem(HOME_OWNER_CALL)||'').trim(); // ← 反映のみ
             return {
               name: cat.name||'ネコ',
               ageYears,
@@ -611,10 +642,12 @@
                 draft = dedupeEndings(draft);
 
                 // 後処理：口調と野良補正
+                const persona = normPersonality(cat.personality||'');
                 draft = adjustToneByGenderAge(draft, cat.gender, ageMonths);
-                draft = softenHardEndings(draft, normPersonality(cat.personality||''), cat.gender);
+                draft = softenHardEndings(draft, persona, cat.gender);
                 if(String(cat.territory||'').toLowerCase()==='stray'){
                   draft = fixStrayPhrases(draft);
+                  draft = ensureStrayAffection(draft, persona, 'stray', ageMonths);
                 }
 
                 // 類似チェック
