@@ -157,8 +157,44 @@
           return out;
         }
 
+        /* ====== やわらか化：共通仕上げロジック（語尾判定拡張） ====== */
+        const SOFT_OK_RE = /(だよね|だよ|かな|かもね|んだよね|んだ|ないよ|いいんだ|かぁ|だぁ)$/;
+        const VERBISH_RE = /(ておく|ていく|てくる|てみる|ちゃう|じゃう|しまう|できる|られる|れる|える|てる|ている|たい|たくなる|やすい|にくい|づらい|なる|する|いる|ある|いく|くる|おく|できた|なった|した|いった|きた)$/;
+        const BASE_END_RE = /(る|た|う|く|す|つ|む|ぶ|ぬ|ぐ)$/;
+        function finalizeSoftEnding(seg, gender){
+          const tail=(seg.match(/[。！？]+$/)||[''])[0];
+          let core=seg.slice(0, seg.length - tail.length);
+          if(!core) return seg;
+
+          // すでに柔らかければ触らない
+          if(SOFT_OK_RE.test(core)) return seg;
+
+          // 丁寧語→やわらか
+          core = core.replace(/です$/,'だよ').replace(/ます$/,'だよ');
+
+          // 名詞＋だ/です
+          if(/(だ|です)$/.test(core)){
+            core = core.replace(/です$/, (gender==='female'?'だよね':'だよ'))
+                       .replace(/だ$/,   (gender==='female'?'だよね':'だよ'));
+            return core + tail;
+          }
+
+          // 動詞・形容詞っぽい終わり
+          if(VERBISH_RE.test(core) || BASE_END_RE.test(core)){
+            core += (gender==='female' ? 'んだよね' : 'んだ');
+            return core + tail;
+          }
+
+          // 形容詞（〜い）※否定の「ない」は別
+          if(/[^な]い$/.test(core)){
+            core += (gender==='female' ? 'んだよね' : 'んだ');
+            return core + tail;
+          }
+
+          return core + tail;
+        }
+
         /* ====== やわらか化（強） ====== */
-        // 性別×月齢×性格で語尾をさらにやわらかく
         function adjustToneByGenderAge(text, gender, ageMonths, persona){
           let s=String(text||''); if(!s) return s;
           const g=(gender==='male')?'male':(gender==='female'?'female':'other');
@@ -171,25 +207,21 @@
           const parts=s.split(/(?<=[。！？])/);
           function tweak(seg){
             if(!seg) return seg;
-            if(Math.random()>strength) return seg;
-            const tail=(seg.match(/[。！？]+$/)||[''])[0];
-            let core=seg.slice(0, seg.length - tail.length);
-
-            core = core
-              .replace(/なのだ(?=([。！？」』]|$))/g, randPick(['なんだよね','なんだよ','なんだ']))
-              .replace(/である(?=([。！？」』]|$))/g, randPick(softer))
-              .replace(/だが(?=([、。！？」』]|$))/g, 'けど')
-              .replace(/だと思う(?=([。！？」』]|$))/g, randPick(['気がする','かも']))
-              .replace(/だろう(?=([。！？」』]|$))/g, randPick(['かも','かな']))
-              .replace(/だな(?=([。！？」』]|$))/g, randPick(softer))
-              .replace(/だぞ(?=([。！？」』]|$))/g, randPick(softer))
-              .replace(/(。)$/,'$1'); // 尾はそのまま
-
-            // ふんわり追加（語尾が硬い文だけ）
-            if(!/(だよ|だよね|かな|かもね|んだ|んだよね|ないよ|いいんだ)([。！？」』]|$)/.test(core)){
-              if(/(る|た|ない|える|れる|られる)$/.test(core)) core += randPick(['んだ','だよ','かな','んだよね']);
+            let out=seg;
+            if(Math.random()<=strength){
+              // 硬い言い回しをまず置換
+              out = out
+                .replace(/なのだ(?=([。！？」』]|$))/g, randPick(['なんだよね','なんだよ','なんだ']))
+                .replace(/である(?=([。！？」』]|$))/g, randPick(softer))
+                .replace(/だが(?=([、。！？」』]|$))/g, 'けど')
+                .replace(/だと思う(?=([。！？」』]|$))/g, randPick(['気がする','かも']))
+                .replace(/だろう(?=([。！？」』]|$))/g, randPick(['かも','かな']))
+                .replace(/だな(?=([。！？」』]|$))/g, randPick(softer))
+                .replace(/だぞ(?=([。！？」』]|$))/g, randPick(softer));
             }
-            return core + tail;
+            // 最終ふんわり（拡張判定）
+            out = finalizeSoftEnding(out, gender);
+            return out;
           }
           return parts.map(tweak).join('');
         }
@@ -217,23 +249,10 @@
                .replace(/心象/g, 'きぶん')
                .replace(/結局、/g, randPick(['それで、','じゃあ、']))
                .replace(/ことにした(?=([。！？」』]|$))/g, randPick(['ことにしたよ','にしようかな']));
-          return s;
-        }
 
-        // 仕上げでさらにふんわり
-        function superSoftenEndings(text, gender){
-          let s=String(text||''); if(!s) return s;
-          const parts=s.split(/(?<=[。！？])/).map(seg=>{
-            const tail=(seg.match(/[。！？]+$/)||[''])[0];
-            let core=seg.slice(0, seg.length - tail.length);
-            if(!core) return seg;
-            if(/(だよ|だよね|かな|かもね|んだ|んだよね|ないよ|いいんだ)$/.test(core)) return seg;
-            if(/(る|た|ない|える|れる|られる)$/.test(core)){
-              core += (gender==='female')? 'だよね' : 'だよ';
-            }
-            return core + tail;
-          });
-          return parts.join('');
+          // 文単位で最終ふんわり（拡張判定）
+          s = s.split(/(?<=[。！？])/).map(seg=> finalizeSoftEnding(seg, gender)).join('');
+          return s;
         }
 
         /* ====== 野良の表現補正 ====== */
@@ -291,10 +310,9 @@
           ];
           const add = randPick(variants);
           const parts = s.split(/(?<=[。！？])/);
-          const pos = Math.min(1, parts.length-1); // 1文目のあとに差し込むのが基本
+          const pos = Math.min(1, parts.length-1);
           const candidate = (parts.slice(0,pos+1).join('') + (add.endsWith('。')?add:add+'。') + parts.slice(pos+1).join(''));
           if(candidate.length<=TWEET_MAX) return candidate;
-          // 入らなければ末尾に短く
           const add2 = `${key}はちょっと自慢でね。`;
           if((s.length + add2.length) <= TWEET_MAX) return s + add2;
           return s;
@@ -302,7 +320,6 @@
 
         /* ====== 主人言及：頻度1/3・固定フレーズ回避・ネガは必ず寄りそう ====== */
         function ownerPhraseDejavuParaphrase(seg){
-          // 「さて…どう出る…」系をゆるく検出して言い換え
           return seg.replace(/(「)?[^」]*どう出る[^」]*?(」)?/g, randPick([
             '声だけ流れていった',
             '考えごとの気配がした',
@@ -316,8 +333,6 @@
         function textHasOwner(s, words){
           return sentenceHasOwner(s, words);
         }
-
-        // 過去N件（同じネコ）の主人言及数
         function lastOwnerMentionCount(catId, words, n=2){
           try{
             const box = JSON.parse(localStorage.getItem(`${NS}:tw:${catId}`)||'{}');
@@ -328,7 +343,6 @@
             return cnt;
           }catch(_){ return 0; }
         }
-
         function limitAndParaphraseOwnerMention(text, ownerLabel, isOwnerNegative, territory, histCount){
           let s=String(text||''); if(!s) return s;
           const terr = String(territory||'').toLowerCase();
@@ -339,7 +353,6 @@
             return base;
           })();
 
-          // 文章ごとに処理
           let sentences = s.split(/(?<=[。！？])/).filter(Boolean);
           let anyOwner=false;
           for(let i=0;i<sentences.length;i++){
@@ -348,20 +361,16 @@
             if(!hadOwner) continue;
             anyOwner=true;
 
-            // 固定フレーズを先にほぐす
             seg = ownerPhraseDejavuParaphrase(seg);
 
             if(isOwnerNegative){
-              // ネガなら残す（やさしく）
-              seg = seg.replace(/(心配|困っ|だめ|つら|むり|疲)/g, m=>m).replace(/。?$/,'。');
+              seg = seg.replace(/。?$/,'。');
               sentences[i]=seg;
             }else{
-              // 非ネガ：履歴も考慮して約1/3だけ残す
-              const keepProb = Math.max(0, 0.34 - 0.34*Number(histCount||0)); // 履歴が多いほど残さない
+              const keepProb = Math.max(0, 0.34 - 0.34*Number(histCount||0));
               if(Math.random()>keepProb){
-                sentences[i]=''; // 消す
+                sentences[i]='';
               }else{
-                // 薄め表現へ（呼称や直接引用を薄く）
                 seg = seg
                   .replace(/(お父さん|お母さん|パパ|ママ|とうさん|かあさん|おとう|おかあ|ごしゅじん|おうちのひと|人|おじちゃん|おねえさん)の/g, '')
                   .replace(/(お父さん|お母さん|パパ|ママ|とうさん|かあさん|おとう|おかあ|ごしゅじん|おうちのひと|人|おじちゃん|おねえさん)が/g, '')
@@ -372,7 +381,6 @@
             }
           }
 
-          // ネガなのに一度も出ていない→短く添える
           if(isOwnerNegative && !anyOwner){
             const add = randPick([
               `${ownerWords[0]||'人'}の声が少し沈んでたから、そっとそばにいたよ。`,
@@ -468,7 +476,7 @@
           if(wday===0) hints.push('週末のしずけさ');
           if(hour>=16 && hour<=18){
             if(month>=6 && month<=8) hints.push('明るい夕暮れ');
-            if(month===12 || month<=2) hints.push('夕暮れが早い');
+            if(month===12 ||月<=2) hints.push('夕暮れが早い');
           }
           if(hour>=5 && hour<=7 && month>=3 && month<=5) hints.push('朝焼けがきれい');
           if(hour>=11&&hour<=14){
@@ -789,8 +797,8 @@
 
                 draft = ensureFeatureMentionFront(draft, ctx.features);
 
-                // 最終ふんわり
-                draft = superSoftenEndings(draft, cat.gender);
+                // 文末仕上げ（拡張）を念押し
+                draft = draft.split(/(?<=[。！？])/).map(seg=> finalizeSoftEnding(seg, cat.gender)).join('');
 
                 // 類似チェック
                 const simPrev = prevSaved ? similarity(draft, prevSaved) : 0;
