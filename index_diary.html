@@ -173,7 +173,7 @@
           catch{ return ''; }
         }
         function recentAllTweets(limit=60){
-          const res=[]; 
+          const res=[];
           for(let i=0;i<localStorage.length;i++){
             const k=localStorage.key(i);
             if(k && k.startsWith(`${NS}:tw:`)){
@@ -237,7 +237,7 @@
           }
           if(hour>=5 && hour<=7 && month>=3 && month<=5) hints.push('朝焼けがきれい');
           if(hour>=11&&hour<=14){
-            if(month>=7 &&月<=8) hints.push('日差しが強い');
+            if(month>=7 && month<=8) hints.push('日差しが強い');
             if(month>=12||month<=2) hints.push('お昼でも空気がひやり');
           }
           if(weatherKey==='sunny')  hints.push('日差しがあたたかい');
@@ -283,7 +283,7 @@
           try{
             const res = await fetch(apiBase + '/exec', {
               method:"POST",
-              headers:{ "Content-Type":"text/plain" }, // ← ここを application/json から変更
+              headers:{ "Content-Type":"text/plain" },
               body: bodyText,
               signal: ctrl.signal
             });
@@ -296,7 +296,7 @@
         }
 
         // POSTだけ
-        function callAI(prompt, {maxTokens=200}={}){
+        function callAI(prompt, {maxTokens=180}={}){ // ← デフォルト 180
           const apiBase = getApiBase();
           const model = getGeminiModel();
           const temperature = getTemp();
@@ -511,7 +511,7 @@
               let finalText=''; let lastData=null;
               for(let i=0;i<3;i++){
                 const add = i? '\n【追加条件】前回までと似た言い回しを避け、新しい語彙で書き直してください（強度:'+i+'）。' : '';
-                const data = await callAI(basePrompt + add, {maxTokens:200});
+                const data = await callAI(basePrompt + add, {maxTokens:180}); // ← 呼び出しも 180
                 lastData=data;
                 let draft = sanitize(String(pickTextFromAI(data)||'')); 
                 if(!/[。！？]$/.test(draft)) draft+='。';
